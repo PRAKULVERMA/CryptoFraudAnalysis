@@ -23,7 +23,8 @@ app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
-    if (config.CORS_ORIGINS.includes(origin) || config.CORS_ORIGINS.includes('*')) {
+    const isVercelOrigin = /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin);
+    if (config.CORS_ORIGINS.includes(origin) || config.CORS_ORIGINS.includes('*') || isVercelOrigin) {
       return callback(null, true);
     }
     return callback(new Error('CORS not allowed'));
