@@ -31,4 +31,4 @@ export function createBlockchainProvider() {
   };
 }
 
-export default createBlockchainProvider();
+export default createBlockchainProvider;
