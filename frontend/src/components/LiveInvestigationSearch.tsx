@@ -95,9 +95,25 @@ export const LiveInvestigationSearch: React.FC<LiveInvestigationSearchProps> = (
         body: JSON.stringify({ address: address.trim(), network }),
       });
 
-      if (!response.ok) throw new Error('Investigation failed');
+      const responseText = await response.text();
+      let responseData: any = null;
 
-      const result = await response.json();
+      try {
+        responseData = responseText ? JSON.parse(responseText) : null;
+      } catch {
+        responseData = null;
+      }
+
+      if (!response.ok) {
+        const message = responseData?.message || responseData?.error || responseText || `Investigation failed (${response.status})`;
+        throw new Error(message);
+      }
+
+      const result = responseData;
+      if (!result || typeof result !== 'object') {
+        throw new Error('The investigation service returned an invalid response.');
+      }
+
       setInvestigationResult(result);
 
       if (onSelectWalletForGraph) {
@@ -109,6 +125,7 @@ export const LiveInvestigationSearch: React.FC<LiveInvestigationSearchProps> = (
       }
     } catch (error) {
       console.error('Investigation error:', error);
+      setValidationError(error instanceof Error ? error.message : 'Investigation failed. Please try again.');
     } finally {
       setIsLoading(false);
       clearTimeout(stepTimer1);
