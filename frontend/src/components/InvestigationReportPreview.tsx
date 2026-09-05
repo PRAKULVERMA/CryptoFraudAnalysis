@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   X,
   Download,
@@ -52,6 +52,21 @@ export const InvestigationReportPreview: React.FC<
 > = ({ investigation, onClose }) => {
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const navigation = document.getElementById('main-navigation');
+    const previousDisplay = navigation?.style.display;
+
+    if (navigation) {
+      navigation.style.display = 'none';
+    }
+
+    return () => {
+      if (navigation) {
+        navigation.style.display = previousDisplay || '';
+      }
+    };
+  }, []);
 
   const handleExportPDF = async () => {
     if (!investigation?.investigation_id) {
@@ -112,7 +127,7 @@ export const InvestigationReportPreview: React.FC<
   const destination = investigation.destination || {};
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-xl overflow-y-auto">
+    <div className="fixed inset-0 z-[200] bg-black/95 backdrop-blur-xl overflow-y-auto">
       {/* Top Navigation */}
       <div className="sticky top-0 z-20 bg-[#080808]/95 backdrop-blur-xl border-b border-white/10">
         <div className="max-w-7xl mx-auto px-5 sm:px-8 py-4 flex items-center justify-between gap-4">
