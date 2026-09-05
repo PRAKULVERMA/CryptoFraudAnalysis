@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import investigationService from '../services/investigations/investigationService.js';
+import reportService from '../services/reportService.js';
 
 const router = Router();
 

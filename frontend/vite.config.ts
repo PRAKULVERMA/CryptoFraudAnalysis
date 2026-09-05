@@ -4,6 +4,8 @@ import path from 'path';
 import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
+  const apiTarget = process.env.VITE_API_BASE_URL || 'https://cryptofraudanalysis.onrender.com';
+
   return {
     plugins: [react(), tailwindcss()],
     resolve: {
@@ -19,8 +21,9 @@ export default defineConfig(() => {
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
       proxy: {
         '/api': {
-          target: 'http://localhost:4000',
+          target: apiTarget,
           changeOrigin: true,
+          secure: true,
         },
       },
     },

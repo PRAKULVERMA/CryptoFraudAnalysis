@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Sparkles,
 } from 'lucide-react';
+import { InvestigationReportPreview } from './InvestigationReportPreview';
 
 interface LiveInvestigationSearchProps {
   onSelectWalletForGraph?: (wallet: { address: string; network: string; risk: number }) => void;
@@ -28,6 +29,7 @@ export const LiveInvestigationSearch: React.FC<LiveInvestigationSearchProps> = (
   const [loadingStep, setLoadingStep] = useState(0);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [investigationResult, setInvestigationResult] = useState<any | null>(null);
+  const [showReportPreview, setShowReportPreview] = useState(false);
 
   const demoWallets = [
     {
@@ -358,10 +360,25 @@ export const LiveInvestigationSearch: React.FC<LiveInvestigationSearchProps> = (
                     <span className="text-emerald-400 font-semibold">● Ready for Intervention:</span> Subpoena-ready forensic data packet assembled for LEA submission.
                   </div>
                   <div className="flex items-center gap-3">
+                    {/* Generate Report */}
                     <button
+                      type="button"
+                      onClick={() => setShowReportPreview(true)}
+                      className="px-5 py-2 rounded-full border border-[#A58B6F]/40 bg-[#A58B6F]/10 text-[#C4A482] text-xs font-semibold uppercase tracking-wider hover:bg-[#A58B6F]/20 hover:border-[#A58B6F]/70 transition-all flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>Generate Report</span>
+                    </button>
+
+                    {/* Inspect Graph */}
+                    <button
+                      type="button"
                       onClick={() => {
                         const el = document.getElementById('graph-network');
-                        if (el) el.scrollIntoView({ behavior: 'smooth' });
+
+                        if (el) {
+                          el.scrollIntoView({ behavior: 'smooth' });
+                        }
                       }}
                       className="px-5 py-2 rounded-full bg-white text-black text-xs font-semibold uppercase tracking-wider hover:bg-neutral-200 transition-all flex items-center gap-1.5 cursor-pointer"
                     >
@@ -373,8 +390,18 @@ export const LiveInvestigationSearch: React.FC<LiveInvestigationSearchProps> = (
               </div>
             </motion.div>
           )}
-        </AnimatePresence>
+                </AnimatePresence>
       </div>
+
+      {/* Report Preview */}
+      <AnimatePresence>
+        {showReportPreview && investigationResult && (
+          <InvestigationReportPreview
+            investigation={investigationResult}
+            onClose={() => setShowReportPreview(false)}
+          />
+        )}
+      </AnimatePresence>
     </section>
   );
 };

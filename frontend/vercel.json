@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://cryptofraudanalysis.onrender.com/api/:path*"
+    }
+  ]
+}
