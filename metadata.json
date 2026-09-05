@@ -1,0 +1,6 @@
+{
+  "name": "ChainTrace AI - Blockchain Intelligence",
+  "description": "Tracing Illicit Funds. Identifying Exchange Destinations. Advanced blockchain forensic analytics, transaction clustering, and darknet money trail visualization for law enforcement and cybercrime investigators.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
