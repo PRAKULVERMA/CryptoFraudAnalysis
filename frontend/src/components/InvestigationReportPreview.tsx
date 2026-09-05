@@ -94,6 +94,12 @@ export const InvestigationReportPreview: React.FC<
     }
   };
 
+  const handleExitToHome = () => {
+    onClose();
+    window.location.hash = 'home';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const patterns = Array.isArray(investigation.patterns)
     ? investigation.patterns
     : [];
@@ -150,6 +156,13 @@ export const InvestigationReportPreview: React.FC<
               aria-label="Close report"
             >
               <X className="w-4 h-4" />
+            </button>
+
+            <button
+              onClick={handleExitToHome}
+              className="px-4 py-2.5 rounded-xl border border-white/10 bg-white/[0.03] hover:bg-white/10 text-neutral-300 hover:text-white text-[10px] font-semibold uppercase tracking-widest transition-all"
+            >
+              Exit to Home
             </button>
           </div>
         </div>

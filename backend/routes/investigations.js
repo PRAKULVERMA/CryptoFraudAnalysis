@@ -13,6 +13,19 @@ router.get('/', async (req, res, next) => {
   }
 });
 
+router.get('/:id/report', async (req, res, next) => {
+  try {
+    const investigation = await investigationService.getInvestigation(req.params.id);
+    if (!investigation) {
+      return res.status(404).json({ error: true, code: 'INVESTIGATION_NOT_FOUND', message: 'Investigation not found.' });
+    }
+
+    return reportService.generateInvestigationReport(investigation, res);
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.get('/:id', async (req, res, next) => {
   try {
     const item = await investigationService.getInvestigation(req.params.id);
