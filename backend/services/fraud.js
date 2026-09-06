@@ -1,8 +1,7 @@
 import config from '../config/index.js';
 import createBlockchainProvider from './blockchain/providerFactory.js';
 import { traceWallet } from './tracing/traceService.js';
-import { detectFraudPatterns } from './detection/fraudDetectionService.js';
-import { calculateRiskScore } from './detection/riskService.js';
+import { analyzeEvidenceRisk } from './detection/evidenceRiskService.js';
 
 export async function detectFraud(address, network, transactions = []) {
   const normalizedNetwork = String(network || '').trim().toLowerCase();
@@ -19,6 +18,8 @@ export async function detectFraud(address, network, transactions = []) {
         amount: tx.amount || 0,
         timestamp: tx.timestamp || new Date().toISOString(),
         hop: 1,
+        direction: tx.direction || (tx.from === address ? 'outgoing' : tx.to === address ? 'incoming' : 'unknown'),
+        value: tx.value || tx.amount || 0,
       })),
       trace_summary: {
         transactions_analyzed: transactions.length,
@@ -27,33 +28,38 @@ export async function detectFraud(address, network, transactions = []) {
       },
     };
   } else {
-    traceResult = await traceWallet(address, normalizedNetwork, provider);
+    traceResult = await traceWallet(address, normalizedNetwork, provider, `${address}-${normalizedNetwork}`);
   }
 
-  const patterns = detectFraudPatterns(traceResult);
-  const risk = calculateRiskScore(traceResult, patterns);
+  const risk = analyzeEvidenceRisk({
+    address,
+    network: normalizedNetwork,
+    transactions: traceResult.edges || [],
+    trace_summary: traceResult.trace_summary || {},
+  });
 
   return {
     address,
     network: normalizedNetwork,
     analyzedAt: new Date().toISOString(),
-    fraudProbability: Number((risk.risk_score / 100).toFixed(2)),
-    riskLevel: risk.risk_level,
-    patterns: patterns.map((pattern) => ({
-      id: pattern.pattern_type,
-      name: pattern.pattern_type,
-      confidence: pattern.confidence,
-      description: pattern.evidence.join(' '),
-    })),
-    recommendedActions: [
-      'Review transaction graph for convergence or fan-out behavior',
-      'Validate wallet destination clusters',
-      'Escalate if multiple suspicious edges are confirmed',
-    ],
-    evidenceSummary: patterns.length ? patterns.map((pattern) => pattern.evidence.join(' ')).join(' ') : 'No high-confidence suspicious pattern was identified in the traced graph.',
+    fraudProbability: Number((risk.riskScore / 100).toFixed(2)),
+    riskLevel: risk.riskLevel,
+    patterns: risk.patterns,
+    recommendedActions: risk.patterns.length
+      ? [
+          'Review transaction graph for rapid forwarding or fan-out behavior',
+          'Validate wallet destination clusters',
+          'Escalate if multiple suspicious edges are confirmed',
+        ]
+      : ['No immediate action required based on current evidence.'],
+    evidenceSummary: risk.patterns.length
+      ? risk.patterns.map((p) => p.evidence.join(' ')).join(' ')
+      : 'No high-confidence suspicious pattern was identified in the traced graph.',
     synthetic: config.DEMO_MODE,
     mode: config.DEMO_MODE ? 'DEMO' : 'LIVE',
-    risk_score: risk.risk_score,
-    risk_factors: risk.factors,
+    risk_score: risk.riskScore,
+    risk_factors: risk.riskFactors,
+    confidence: `${risk.confidence}%`,
+    evidence: risk.evidence,
   };
 }

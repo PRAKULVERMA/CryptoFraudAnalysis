@@ -23,6 +23,8 @@ const cfg = {
   NEO4J_URI: process.env.NEO4J_URI || '',
   NEO4J_USERNAME: process.env.NEO4J_USERNAME || '',
   NEO4J_PASSWORD: process.env.NEO4J_PASSWORD || '',
+  NEO4J_DATABASE: process.env.NEO4J_DATABASE || 'neo4j',
+  NEO4J_ENABLED: toBoolean(process.env.NEO4J_ENABLED, false),
   ETHEREUM_RPC_URL: process.env.ETHEREUM_RPC_URL || '',
   ETHERSCAN_API_KEY: process.env.ETHERSCAN_API_KEY || '',
   ETHERSCAN_API_URL: process.env.ETHERSCAN_API_URL || 'https://api.etherscan.io/v2/api',

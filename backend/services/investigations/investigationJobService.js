@@ -95,7 +95,7 @@ export class InvestigationJobService {
           updated_at: new Date().toISOString(),
         });
 
-        const result = await analyzeWallet(investigation.wallet_address, investigation.network);
+        const result = await analyzeWallet(investigation.wallet_address, investigation.network, investigation.investigation_id);
 
         await investigationService.updateInvestigation(investigationId, {
           progress: 80,

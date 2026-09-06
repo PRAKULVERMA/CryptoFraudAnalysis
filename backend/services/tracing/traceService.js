@@ -2,6 +2,7 @@ import config from '../../config/index.js';
 import { buildGraphFromTrace } from './graphBuilder.js';
 import { createLimitGuard } from './limits.js';
 import { normalizeWalletAddress } from './graphBuilder.js';
+import neo4jGraphService from '../graph/neo4jGraphService.js';
 
 function getTransactionDirection(transaction, walletKey) {
   const direction = transaction.direction;
@@ -16,7 +17,7 @@ function getTransactionDirection(transaction, walletKey) {
   return 'unknown';
 }
 
-export async function traceWallet(address, network = 'bitcoin', provider) {
+export async function traceWallet(address, network = 'bitcoin', provider, investigationId) {
   if (!provider) {
     throw Object.assign(new Error('Blockchain provider not available.'), {
       code: 'BLOCKCHAIN_PROVIDER_UNAVAILABLE',
@@ -125,9 +126,40 @@ export async function traceWallet(address, network = 'bitcoin', provider) {
     graph.trace_summary.provider_error = firstError.code || 'BLOCKCHAIN_API_ERROR';
   }
 
+  const nodes = graph.nodes || [];
+  const edges = graph.edges || [];
+  let graphAnalysis = {
+    provider: 'memory',
+    status: 'ACTIVE',
+    reason: 'Neo4j not enabled or unavailable',
+  };
+
+  try {
+    const stored = await neo4jGraphService.storeInvestigationGraph(
+      investigationId || `${rootAddress}-${network}`,
+      rootAddress,
+      network,
+      nodes,
+      edges
+    );
+    if (stored) {
+      graphAnalysis = {
+        provider: 'neo4j',
+        status: 'AVAILABLE',
+      };
+    }
+  } catch {
+    graphAnalysis = {
+      provider: 'memory',
+      status: 'FALLBACK',
+      reason: 'Neo4j unavailable',
+    };
+  }
+
   return {
     ...graph,
     mode: graph.trace_summary.mode,
     synthetic,
+    graph_analysis: graphAnalysis,
   };
 }
