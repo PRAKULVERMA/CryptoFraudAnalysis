@@ -23,7 +23,7 @@ const investigationSchema = new mongoose.Schema(
     status: {
       type: String,
       required: true,
-      default: 'PENDING',
+      default: 'queued',
     },
     progress: {
       type: Number,
@@ -35,8 +35,30 @@ const investigationSchema = new mongoose.Schema(
       required: true,
       default: 'VALIDATING WALLET',
     },
+    started_at: {
+      type: Date,
+      default: null,
+    },
     completed_at: {
       type: Date,
+      default: null,
+    },
+    failed_at: {
+      type: Date,
+      default: null,
+    },
+    retry_count: {
+      type: Number,
+      required: true,
+      default: 0,
+    },
+    max_retries: {
+      type: Number,
+      required: true,
+      default: 3,
+    },
+    last_error: {
+      type: String,
       default: null,
     },
     error: {
@@ -65,9 +87,25 @@ const investigationSchema = new mongoose.Schema(
     },
     toJSON: {
       transform: (doc, ret) => {
-        ret.id = ret.investigation_id;
         delete ret._id;
         delete ret.__v;
+        for (const key of Object.keys(ret)) {
+          if (ret[key] instanceof Date) {
+            ret[key] = ret[key].toISOString();
+          }
+        }
+        return ret;
+      },
+    },
+    toObject: {
+      transform: (doc, ret) => {
+        delete ret._id;
+        delete ret.__v;
+        for (const key of Object.keys(ret)) {
+          if (ret[key] instanceof Date) {
+            ret[key] = ret[key].toISOString();
+          }
+        }
         return ret;
       },
     },

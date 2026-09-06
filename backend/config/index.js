@@ -38,6 +38,8 @@ const cfg = {
   MAX_TRANSACTIONS_PER_WALLET: toNumber(process.env.MAX_TRANSACTIONS_PER_WALLET, 100),
   MAX_TOTAL_TRANSACTIONS: toNumber(process.env.MAX_TOTAL_TRANSACTIONS, 500),
   AUTH_REQUIRED: toBoolean(process.env.AUTH_REQUIRED, false),
+  INVESTIGATION_MAX_RETRIES: toNumber(process.env.INVESTIGATION_MAX_RETRIES, 3),
+  INVESTIGATION_STALE_TIMEOUT_MS: toNumber(process.env.INVESTIGATION_STALE_TIMEOUT_MS, 900000),
 };
 
 if (cfg.NODE_ENV === 'production' && (!process.env.JWT_SECRET || cfg.JWT_SECRET === defaultDevelopmentSecret || cfg.JWT_SECRET.length < 32)) {
