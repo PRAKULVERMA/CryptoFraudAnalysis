@@ -1,3 +1,5 @@
+import config from '../config/index.js';
+
 export function errorHandler(err, req, res, next) {
   const status = err.statusCode || 500;
   const code = err.code || 'INTERNAL_SERVER_ERROR';
@@ -10,7 +12,7 @@ export function errorHandler(err, req, res, next) {
     request_id: req.requestId,
   };
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (config.NODE_ENV !== 'production') {
     payload.details = err.stack || undefined;
   }
 

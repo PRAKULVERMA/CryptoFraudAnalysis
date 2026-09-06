@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { randomUUID } from 'crypto';
 import { signToken } from '../services/auth/authService.js';
 import { hashPassword, verifyPassword } from '../services/auth/passwordService.js';
 import { UserRepository } from '../services/auth/userRepository.js';
@@ -13,15 +14,16 @@ router.post('/register', async (req, res, next) => {
       return res.status(400).json({ error: true, code: 'INVALID_REQUEST', message: 'email and password are required.' });
     }
 
-    const existing = await userRepository.findByEmail(email);
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const existing = await userRepository.findByEmail(normalizedEmail);
     if (existing) {
       return res.status(409).json({ error: true, code: 'USER_EXISTS', message: 'User already exists.' });
     }
 
     const passwordHash = await hashPassword(password);
     const user = {
-      id: `user-${Date.now()}`,
-      email,
+      id: randomUUID(),
+      email: normalizedEmail,
       name: name || 'User',
       passwordHash,
     };
@@ -41,7 +43,7 @@ router.post('/login', async (req, res, next) => {
       return res.status(400).json({ error: true, code: 'INVALID_REQUEST', message: 'email and password are required.' });
     }
 
-    const user = await userRepository.findByEmail(email);
+    const user = await userRepository.findByEmail(String(email).trim().toLowerCase());
     if (!user) {
       return res.status(401).json({ error: true, code: 'INVALID_CREDENTIALS', message: 'Invalid credentials.' });
     }
@@ -66,8 +68,8 @@ router.get('/me', async (req, res) => {
   }
 
   try {
-    const { default: jwt } = await import('jsonwebtoken');
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'development-secret-change-me');
+    const { verifyToken } = await import('../services/auth/authService.js');
+    const decoded = verifyToken(token);
     return res.json({ user: decoded });
   } catch (error) {
     return res.status(401).json({ error: true, code: 'INVALID_TOKEN', message: 'Invalid or expired token.' });

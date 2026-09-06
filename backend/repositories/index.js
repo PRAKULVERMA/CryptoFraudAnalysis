@@ -1,10 +1,11 @@
 import config from '../config/index.js';
+import InvestigationRepository from './investigationRepository.js';
 import MemoryRepository from './memoryRepository.js';
 
 let repository = MemoryRepository;
 
 if (config.MONGODB_URI) {
-  console.warn('MongoDB URI configured but no live Mongo repository is implemented in this backend build. Using in-memory investigation storage.');
+  repository = InvestigationRepository;
 }
 
 export function getInvestigationRepository() {

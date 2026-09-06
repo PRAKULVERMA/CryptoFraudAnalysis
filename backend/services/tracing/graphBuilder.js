@@ -1,16 +1,22 @@
-export function buildGraphFromTrace({ rootAddress, transactions = [], synthetic = false, mode = 'DEMO' }) {
+export function normalizeWalletAddress(address) {
+  return String(address || '').trim().toLowerCase();
+}
+
+export function buildGraphFromTrace({ rootAddress, transactions = [], network = 'bitcoin', synthetic = false, mode = 'DEMO', walletHops = new Map(), maxHopsReached = 0, limitsReached = [] }) {
   const nodes = new Map();
   const edges = [];
+  const rootKey = normalizeWalletAddress(rootAddress);
 
   const addNode = (address, type, hop = 0) => {
     if (!address) return;
-    if (!nodes.has(address)) {
-      nodes.set(address, {
+    const key = normalizeWalletAddress(address);
+    if (!nodes.has(key)) {
+      nodes.set(key, {
         id: address,
         label: address,
         address,
-        type,
-        network: 'bitcoin',
+        type: key === rootKey ? 'suspect' : type,
+        network,
         hop,
         synthetic,
         mode,
@@ -21,15 +27,22 @@ export function buildGraphFromTrace({ rootAddress, transactions = [], synthetic 
   for (const tx of transactions) {
     const source = tx.from || rootAddress;
     const target = tx.to || rootAddress;
-    addNode(source, 'wallet', 0);
-    addNode(target, 'wallet', 1);
+    const transactionId = tx.transactionId || tx.transaction_id || tx.hash || `${source}-${target}`;
+    const value = Number(tx.value ?? tx.amount ?? 0);
+    const hop = Number(tx.hop || walletHops.get(normalizeWalletAddress(source)) || 1);
+    addNode(source, 'wallet', walletHops.get(normalizeWalletAddress(source)) || 0);
+    addNode(target, 'wallet', hop);
     edges.push({
+      id: transactionId,
       source,
       target,
-      transaction_id: tx.transaction_id || tx.hash || `${source}-${target}`,
-      amount: tx.amount || 0,
+      transactionId,
+      hash: tx.hash || transactionId,
+      value,
       timestamp: tx.timestamp || new Date().toISOString(),
-      hop: 1,
+      hop,
+      transaction_id: transactionId,
+      amount: value,
       synthetic,
       mode,
     });
@@ -41,7 +54,9 @@ export function buildGraphFromTrace({ rootAddress, transactions = [], synthetic 
     trace_summary: {
       transactions_analyzed: transactions.length,
       wallets_discovered: nodes.size,
-      max_hops: 1,
+      max_hops: maxHopsReached,
+      max_hops_reached: maxHopsReached,
+      limits_reached: limitsReached,
       synthetic,
       mode,
     },

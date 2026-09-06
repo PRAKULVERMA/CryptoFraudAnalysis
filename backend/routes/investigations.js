@@ -1,46 +1,39 @@
 import { Router } from 'express';
 import investigationService from '../services/investigations/investigationService.js';
 import reportService from '../services/reportService.js';
+import authenticate from '../middleware/authenticate.js';
+import authorizeInvestigation from '../middleware/authorizeInvestigation.js';
 
 const router = Router();
 
-router.get('/', async (req, res, next) => {
+router.get('/', authenticate, async (req, res, next) => {
   try {
-    const investigations = await investigationService.listInvestigations();
+    const investigations = await investigationService.listInvestigations(req.user?.id);
     res.json({ investigations });
   } catch (error) {
     next(error);
   }
 });
 
-router.get('/:id/report', async (req, res, next) => {
+router.get('/:id/report', authenticate, authorizeInvestigation, async (req, res, next) => {
   try {
-    const investigation = await investigationService.getInvestigation(req.params.id);
-    if (!investigation) {
-      return res.status(404).json({ error: true, code: 'INVESTIGATION_NOT_FOUND', message: 'Investigation not found.' });
-    }
-
-    return reportService.generateInvestigationReport(investigation, res);
+    return reportService.generateInvestigationReport(req.investigation, res);
   } catch (error) {
     return next(error);
   }
 });
 
-router.get('/:id', async (req, res, next) => {
+router.get('/:id', authenticate, authorizeInvestigation, async (req, res, next) => {
   try {
-    const item = await investigationService.getInvestigation(req.params.id);
-    if (!item) {
-      return res.status(404).json({ error: true, code: 'INVESTIGATION_NOT_FOUND', message: 'Investigation not found.' });
-    }
-    return res.json(item);
+    return res.json(req.investigation);
   } catch (error) {
     next(error);
   }
 });
 
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', authenticate, authorizeInvestigation, async (req, res, next) => {
   try {
-    const deleted = await investigationService.deleteInvestigation(req.params.id);
+    const deleted = await investigationService.deleteInvestigation(req.params.id, req.user?.id);
     return res.json({ deleted });
   } catch (error) {
     next(error);

@@ -1,8 +1,11 @@
 const store = new Map();
 
 export class MemoryRepository {
-  async listInvestigations() {
-    return Array.from(store.values());
+  async listInvestigations(userId) {
+    const investigations = Array.from(store.values());
+    return userId === undefined
+      ? investigations
+      : investigations.filter((investigation) => investigation.user_id === userId);
   }
 
   async getInvestigation(id) {

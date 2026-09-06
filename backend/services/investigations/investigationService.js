@@ -5,9 +5,10 @@ import config from '../../config/index.js';
 const repository = getInvestigationRepository();
 
 export class InvestigationService {
-  async createInvestigation({ wallet_address, network }) {
+  async createInvestigation({ wallet_address, network, user_id = null }) {
     const investigation = {
       investigation_id: uuidv4(),
+      user_id,
       wallet_address,
       network,
       status: 'PENDING',
@@ -29,15 +30,19 @@ export class InvestigationService {
     return repository.updateInvestigation(id, updates);
   }
 
-  async listInvestigations() {
-    return repository.listInvestigations();
+  async listInvestigations(userId) {
+    return repository.listInvestigations(userId);
   }
 
-  async getInvestigation(id) {
-    return repository.getInvestigation(id);
+  async getInvestigation(id, userId) {
+    const investigation = await repository.getInvestigation(id);
+    if (!investigation) return null;
+    if (userId !== undefined && investigation.user_id !== userId) return null;
+    return investigation;
   }
 
-  async deleteInvestigation(id) {
+  async deleteInvestigation(id, userId) {
+    if (userId !== undefined && !(await this.getInvestigation(id, userId))) return false;
     return repository.deleteInvestigation(id);
   }
 }

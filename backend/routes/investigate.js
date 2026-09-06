@@ -2,10 +2,11 @@ import { Router } from 'express';
 import { analyzeWallet } from '../services/investigation.js';
 import { validateWallet } from '../services/blockchain/validator.js';
 import investigationService from '../services/investigations/investigationService.js';
+import authenticate from '../middleware/authenticate.js';
 
 const router = Router();
 
-router.post('/wallet', async (req, res, next) => {
+router.post('/wallet', authenticate, async (req, res, next) => {
   try {
     const { address, network } = req.body || {};
     if (!address || !network) {
@@ -21,12 +22,17 @@ router.post('/wallet', async (req, res, next) => {
       });
     }
 
-    const existingRecord = await investigationService.createInvestigation({ wallet_address: address, network });
+    const existingRecord = await investigationService.createInvestigation({
+      wallet_address: address,
+      network,
+      user_id: req.user?.id || null,
+    });
     const result = await analyzeWallet(address, network);
 
     const withInvestigation = {
       ...result,
       investigation_id: existingRecord.investigation_id,
+      user_id: existingRecord.user_id,
       status: 'COMPLETED',
       synthetic: Boolean(result.synthetic),
       mode: result.mode || 'DEMO',

@@ -1,6 +1,7 @@
 import config from '../../config/index.js';
 import { buildGraphFromTrace } from './graphBuilder.js';
 import { createLimitGuard } from './limits.js';
+import { normalizeWalletAddress } from './graphBuilder.js';
 
 export async function traceWallet(address, network = 'bitcoin', provider) {
   if (!provider) {
@@ -11,38 +12,106 @@ export async function traceWallet(address, network = 'bitcoin', provider) {
     });
   }
 
-  const result = await provider.getWalletTransactions(address, network);
-  const graph = buildGraphFromTrace({
-    rootAddress: address,
-    transactions: result.transactions || [],
-    synthetic: Boolean(result.synthetic),
-    mode: result.mode || (config.DEMO_MODE ? 'DEMO' : 'LIVE'),
-  });
-
   const guard = createLimitGuard();
-  const state = {
-    hopCount: 0,
-    walletsSeen: new Set([address]),
-    transactionsSeen: new Set(),
+  const rootAddress = String(address || '').trim();
+  const rootKey = normalizeWalletAddress(rootAddress);
+  const queue = [{ address: rootAddress, key: rootKey, hop: 0 }];
+  const visitedWallets = new Set([rootKey]);
+  const walletHops = new Map([[rootKey, 0]]);
+  const transactionsSeen = new Set();
+  const transactions = [];
+  const limitsReached = new Set();
+  let maxHopsReached = 0;
+  let mode = config.DEMO_MODE ? 'DEMO' : 'LIVE';
+  let synthetic = Boolean(config.DEMO_MODE);
+  let firstError = null;
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (current.hop >= guard.limits.maxHops) {
+      limitsReached.add('MAX_HOPS');
+      maxHopsReached = Math.max(maxHopsReached, current.hop);
+      continue;
+    }
+
+    let result;
+    try {
+      result = await provider.getWalletTransactions(current.address, network);
+      mode = result.mode || mode;
+      synthetic = Boolean(result.synthetic);
+    } catch (error) {
+      if (!firstError && transactions.length === 0) throw error;
+      firstError ||= error;
+      continue;
+    }
+
+    const walletTransactions = guard.walletTransactionLimit(result.transactions || []);
+    if ((result.transactions || []).length > walletTransactions.length) {
+      limitsReached.add('MAX_TRANSACTIONS_PER_WALLET');
+    }
+
+    for (const transaction of walletTransactions) {
+      const transactionId = transaction.transactionId || transaction.transaction_id || transaction.hash || `${transaction.from}-${transaction.to}`;
+      if (transactionsSeen.has(transactionId)) continue;
+      if (!guard.canAnalyzeTransaction({ transactionsSeen })) {
+        limitsReached.add('MAX_TOTAL_TRANSACTIONS');
+        break;
+      }
+
+      transactionsSeen.add(transactionId);
+      transactions.push({ ...transaction, transactionId, transaction_id: transactionId, hop: current.hop + 1 });
+      maxHopsReached = Math.max(maxHopsReached, current.hop + 1);
+
+      for (const connectedAddress of [transaction.from, transaction.to]) {
+        const connectedKey = normalizeWalletAddress(connectedAddress);
+        if (!connectedKey || visitedWallets.has(connectedKey)) continue;
+        if (!guard.canVisitWallet({ walletsSeen: visitedWallets }, current.hop + 1)) {
+          limitsReached.add('MAX_WALLETS_PER_INVESTIGATION');
+          break;
+        }
+
+        visitedWallets.add(connectedKey);
+        walletHops.set(connectedKey, current.hop + 1);
+        queue.push({ address: connectedAddress, key: connectedKey, hop: current.hop + 1 });
+      }
+    }
+
+    if (transactionsSeen.size >= guard.limits.maxTotalTransactions) {
+      limitsReached.add('MAX_TOTAL_TRANSACTIONS');
+      break;
+    }
   };
 
-  for (const tx of graph.edges) {
-    state.walletsSeen.add(tx.source);
-    state.walletsSeen.add(tx.target);
-    state.transactionsSeen.add(tx.transaction_id);
-  }
+  const graph = buildGraphFromTrace({
+    rootAddress,
+    transactions,
+    network,
+    walletHops,
+    maxHopsReached,
+    limitsReached: Array.from(limitsReached),
+    synthetic,
+    mode,
+  });
 
-  if (!guard.canContinue(state)) {
-    throw Object.assign(new Error('Trace limits exceeded.'), {
-      code: 'TRACE_LIMIT_EXCEEDED',
-      publicMessage: 'The investigation exceeded the configured traversal limits.',
-      statusCode: 400,
-    });
+  graph.trace_summary.wallets_discovered = visitedWallets.size;
+  graph.trace_summary.transactions_analyzed = transactions.length;
+  graph.trace_summary.max_hops_reached = maxHopsReached;
+  graph.trace_summary.limits_reached = Array.from(limitsReached);
+  graph.tracing_stats = {
+    wallets_discovered: visitedWallets.size,
+    transactions_analyzed: transactions.length,
+    max_hops_reached: maxHopsReached,
+    limits_reached: Array.from(limitsReached),
+  };
+
+  if (firstError) {
+    graph.trace_summary.partial = true;
+    graph.trace_summary.provider_error = firstError.code || 'BLOCKCHAIN_API_ERROR';
   }
 
   return {
     ...graph,
     mode: graph.trace_summary.mode,
-    synthetic: Boolean(result.synthetic),
+    synthetic,
   };
 }

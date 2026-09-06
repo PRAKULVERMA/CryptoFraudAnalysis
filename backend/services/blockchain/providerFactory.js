@@ -1,34 +1,15 @@
 import config from '../../config/index.js';
 import DemoProvider from './demoProvider.js';
+import providerManager from '../providers/providerManager.js';
 
 export function createBlockchainProvider() {
   if (config.DEMO_MODE) {
+    console.info('[Blockchain] DEMO provider mode enabled.');
     return DemoProvider;
   }
 
-  return {
-    async getWalletTransactions() {
-      throw Object.assign(new Error('Live blockchain provider is unavailable.'), {
-        code: 'BLOCKCHAIN_PROVIDER_UNAVAILABLE',
-        publicMessage: 'Live blockchain data provider is unavailable.',
-        statusCode: 503,
-      });
-    },
-    async getTransaction() {
-      throw Object.assign(new Error('Live blockchain provider is unavailable.'), {
-        code: 'BLOCKCHAIN_PROVIDER_UNAVAILABLE',
-        publicMessage: 'Live blockchain data provider is unavailable.',
-        statusCode: 503,
-      });
-    },
-    async getWalletInfo() {
-      throw Object.assign(new Error('Live blockchain provider is unavailable.'), {
-        code: 'BLOCKCHAIN_PROVIDER_UNAVAILABLE',
-        publicMessage: 'Live blockchain data provider is unavailable.',
-        statusCode: 503,
-      });
-    },
-  };
+  console.info('[Blockchain] LIVE provider mode enabled.');
+  return providerManager;
 }
 
 export default createBlockchainProvider;
