@@ -11,11 +11,16 @@ export class InvestigationService {
       user_id,
       wallet_address,
       network,
-      status: 'PENDING',
+      status: 'queued',
       progress: 0,
       current_step: 'VALIDATING WALLET',
       created_at: new Date().toISOString(),
+      started_at: null,
       completed_at: null,
+      failed_at: null,
+      retry_count: 0,
+      max_retries: config.INVESTIGATION_MAX_RETRIES,
+      last_error: null,
       error: null,
       results: null,
       synthetic: Boolean(config.DEMO_MODE),
@@ -44,6 +49,10 @@ export class InvestigationService {
   async deleteInvestigation(id, userId) {
     if (userId !== undefined && !(await this.getInvestigation(id, userId))) return false;
     return repository.deleteInvestigation(id);
+  }
+
+  async claimInvestigation(id) {
+    return repository.claimInvestigation(id);
   }
 }
 

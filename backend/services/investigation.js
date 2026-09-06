@@ -23,7 +23,7 @@ export async function analyzeWallet(address, network) {
     timestamp: new Date().toISOString(),
     riskScore: risk.risk_score,
     riskLevel: risk.risk_level,
-    fundsTraced: isEth ? `${(traceResult.trace_summary?.transactions_analyzed || 0) * 0.3} ETH` : `${(traceResult.trace_summary?.transactions_analyzed || 0) * 0.15} BTC`,
+    fundsTraced: traceResult.trace_summary?.funds_traced || `0 ${isEth ? 'ETH' : 'BTC'}`,
     hopCount: traceResult.trace_summary?.max_hops || 0,
     transactionsAnalyzed: traceResult.trace_summary?.transactions_analyzed || 0,
     clusteringTag: patterns.length ? 'Graph-based suspicious pattern cluster' : 'No high-confidence cluster detected',

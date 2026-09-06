@@ -1,10 +1,20 @@
 import { Router } from 'express';
 import investigationService from '../services/investigations/investigationService.js';
+import investigationJobService from '../services/investigations/investigationJobService.js';
 import reportService from '../services/reportService.js';
 import authenticate from '../middleware/authenticate.js';
 import authorizeInvestigation from '../middleware/authorizeInvestigation.js';
 
 const router = Router();
+
+router.post('/:id/retry', authenticate, authorizeInvestigation, async (req, res, next) => {
+  try {
+    const updated = await investigationJobService.retryInvestigation(req.params.id);
+    return res.json(updated);
+  } catch (error) {
+    next(error);
+  }
+});
 
 router.get('/', authenticate, async (req, res, next) => {
   try {

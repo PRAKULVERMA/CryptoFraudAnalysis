@@ -14,6 +14,7 @@ import analyticsRoutes from './routes/analytics.js';
 import monitoringRoutes from './routes/monitoring.js';
 import authRoutes from './routes/auth.js';
 import investigationsRoutes from './routes/investigations.js';
+import investigationJobService from './services/investigations/investigationJobService.js';
 
 const app = express();
 const PORT = config.PORT;
@@ -70,7 +71,14 @@ app.use('/api/monitoring', monitoringRoutes);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`ChainTrace AI backend running on http://localhost:${PORT}`);
   console.log(`Demo mode: ${config.DEMO_MODE ? 'enabled' : 'disabled'}`);
+
+  try {
+    await investigationJobService.recoverStaleJobs();
+    console.log('Investigation recovery check complete.');
+  } catch (error) {
+    console.error('Investigation recovery failed:', error);
+  }
 });

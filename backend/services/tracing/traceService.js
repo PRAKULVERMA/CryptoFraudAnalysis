@@ -3,6 +3,19 @@ import { buildGraphFromTrace } from './graphBuilder.js';
 import { createLimitGuard } from './limits.js';
 import { normalizeWalletAddress } from './graphBuilder.js';
 
+function getTransactionDirection(transaction, walletKey) {
+  const direction = transaction.direction;
+  if (direction) return direction;
+
+  const fromKey = normalizeWalletAddress(transaction.from);
+  const toKey = normalizeWalletAddress(transaction.to);
+
+  if (fromKey === walletKey && toKey === walletKey) return 'self-transfer';
+  if (fromKey === walletKey) return 'outgoing';
+  if (toKey === walletKey) return 'incoming';
+  return 'unknown';
+}
+
 export async function traceWallet(address, network = 'bitcoin', provider) {
   if (!provider) {
     throw Object.assign(new Error('Blockchain provider not available.'), {
@@ -59,20 +72,23 @@ export async function traceWallet(address, network = 'bitcoin', provider) {
       }
 
       transactionsSeen.add(transactionId);
-      transactions.push({ ...transaction, transactionId, transaction_id: transactionId, hop: current.hop + 1 });
+      const direction = getTransactionDirection(transaction, current.key);
+      transactions.push({ ...transaction, transactionId, transaction_id: transactionId, hop: current.hop + 1, direction });
       maxHopsReached = Math.max(maxHopsReached, current.hop + 1);
 
-      for (const connectedAddress of [transaction.from, transaction.to]) {
-        const connectedKey = normalizeWalletAddress(connectedAddress);
-        if (!connectedKey || visitedWallets.has(connectedKey)) continue;
+      const followBothDirections = synthetic === true;
+      if (followBothDirections || direction === 'outgoing') {
+        const nextHop = transaction.to;
+        const nextKey = normalizeWalletAddress(nextHop);
+        if (!nextKey || nextKey === current.key || visitedWallets.has(nextKey)) continue;
         if (!guard.canVisitWallet({ walletsSeen: visitedWallets }, current.hop + 1)) {
           limitsReached.add('MAX_WALLETS_PER_INVESTIGATION');
           break;
         }
 
-        visitedWallets.add(connectedKey);
-        walletHops.set(connectedKey, current.hop + 1);
-        queue.push({ address: connectedAddress, key: connectedKey, hop: current.hop + 1 });
+        visitedWallets.add(nextKey);
+        walletHops.set(nextKey, current.hop + 1);
+        queue.push({ address: nextHop, key: nextKey, hop: current.hop + 1 });
       }
     }
 

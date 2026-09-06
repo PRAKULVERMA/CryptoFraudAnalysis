@@ -60,18 +60,25 @@ async function requestJson(url) {
   }
 }
 
-function normalizeTransaction(transaction) {
+function normalizeTransaction(transaction, walletAddress) {
   const hash = transaction.hash || transaction.transactionHash || transaction.blockHash || '';
   const timestamp = transaction.timeStamp
     ? new Date(Number(transaction.timeStamp) * 1000).toISOString()
     : null;
   const blockNumber = Number(transaction.blockNumber || 0);
   const value = weiToNumber(transaction.value);
+  const from = transaction.from || '';
+  const to = transaction.to || '';
+  const direction = getTransactionDirection(from, to, walletAddress);
+  const status = transaction.txreceipt_status === '1' || transaction.isError === '0' || !transaction.isError ? 'confirmed' : 'failed';
+  const gasUsed = transaction.gasUsed ? Number(transaction.gasUsed) : null;
+  const gasPrice = transaction.gasPrice ? weiToNumber(transaction.gasPrice) : null;
+  const fee = gasUsed !== null && gasPrice !== null ? gasUsed * gasPrice : null;
 
   return {
     transactionId: hash,
-    from: transaction.from || '',
-    to: transaction.to || '',
+    from,
+    to,
     value,
     timestamp,
     hash,
@@ -84,7 +91,22 @@ function normalizeTransaction(transaction) {
     block_height: blockNumber,
     synthetic: false,
     demo: false,
+    direction,
+    status,
+    fee,
   };
+}
+
+function getTransactionDirection(from, to, walletAddress) {
+  const walletKey = String(walletAddress || '').trim().toLowerCase();
+  const fromKey = String(from || '').trim().toLowerCase();
+  const toKey = String(to || '').trim().toLowerCase();
+
+  if (!walletKey) return 'unknown';
+  if (fromKey === walletKey && toKey === walletKey) return 'self-transfer';
+  if (fromKey === walletKey) return 'outgoing';
+  if (toKey === walletKey) return 'incoming';
+  return 'unknown';
 }
 
 class EthereumProvider {
@@ -95,34 +117,53 @@ class EthereumProvider {
   async getWalletTransactions(address, network = 'ethereum') {
     assertAddress(address);
     assertApiKey();
-    const url = new URL(this.apiBaseUrl);
-    url.searchParams.set('chainid', '1');
-    url.searchParams.set('module', 'account');
-    url.searchParams.set('action', 'txlist');
-    url.searchParams.set('address', address);
-    url.searchParams.set('startblock', '0');
-    url.searchParams.set('endblock', '99999999');
-    url.searchParams.set('page', '1');
-    url.searchParams.set('offset', String(config.MAX_TRANSACTIONS));
-    url.searchParams.set('sort', 'desc');
-    url.searchParams.set('apikey', config.ETHERSCAN_API_KEY);
 
-    const payload = await requestJson(url);
-    const message = String(payload?.message || '').toLowerCase();
-    const result = payload?.result;
+    const allTransactions = [];
+    const pageSize = Math.min(config.MAX_TRANSACTIONS_PER_WALLET || 100, 100);
+    let page = 1;
 
-    if (payload?.status === '0' && message.includes('no transactions')) {
-      return { address, network, transactions: [], synthetic: false, mode: 'LIVE' };
-    }
+    while (allTransactions.length < config.MAX_TOTAL_TRANSACTIONS) {
+      const url = new URL(this.apiBaseUrl);
+      url.searchParams.set('chainid', '1');
+      url.searchParams.set('module', 'account');
+      url.searchParams.set('action', 'txlist');
+      url.searchParams.set('address', address);
+      url.searchParams.set('startblock', '0');
+      url.searchParams.set('endblock', '99999999');
+      url.searchParams.set('page', String(page));
+      url.searchParams.set('offset', String(pageSize));
+      url.searchParams.set('sort', 'desc');
+      url.searchParams.set('apikey', config.ETHERSCAN_API_KEY);
 
-    if (payload?.status !== '1' || !Array.isArray(result)) {
-      throw createProviderError('BLOCKCHAIN_API_ERROR', 'Ethereum provider returned an invalid transaction response.', 502);
+      const payload = await requestJson(url);
+      const message = String(payload?.message || '').toLowerCase();
+      const result = payload?.result;
+
+      if (payload?.status === '0' && message.includes('no transactions')) {
+        break;
+      }
+
+      if (payload?.status !== '1' || !Array.isArray(result)) {
+        throw createProviderError('BLOCKCHAIN_API_ERROR', 'Ethereum provider returned an invalid transaction response.', 502);
+      }
+
+      if (result.length === 0) {
+        break;
+      }
+
+      allTransactions.push(...result.map((tx) => normalizeTransaction(tx, address)));
+
+      if (result.length < pageSize) {
+        break;
+      }
+
+      page++;
     }
 
     return {
       address,
       network: 'ethereum',
-      transactions: result.map(normalizeTransaction),
+      transactions: allTransactions.slice(0, config.MAX_TOTAL_TRANSACTIONS),
       synthetic: false,
       mode: 'LIVE',
     };
@@ -146,7 +187,7 @@ class EthereumProvider {
       throw createProviderError('BLOCKCHAIN_API_ERROR', 'Ethereum transaction was not found.', 404);
     }
 
-    return normalizeTransaction(payload.result);
+    return normalizeTransaction(payload.result, null);
   }
 
   async getWalletInfo(address, network = 'ethereum') {

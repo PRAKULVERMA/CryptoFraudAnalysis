@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { analyzeWallet } from '../services/investigation.js';
 import { validateWallet } from '../services/blockchain/validator.js';
 import investigationService from '../services/investigations/investigationService.js';
+import investigationJobService from '../services/investigations/investigationJobService.js';
 import authenticate from '../middleware/authenticate.js';
 
 const router = Router();
@@ -27,26 +28,21 @@ router.post('/wallet', authenticate, async (req, res, next) => {
       network,
       user_id: req.user?.id || null,
     });
-    const result = await analyzeWallet(address, network);
 
-    const withInvestigation = {
-      ...result,
-      investigation_id: existingRecord.investigation_id,
-      user_id: existingRecord.user_id,
-      status: 'COMPLETED',
-      synthetic: Boolean(result.synthetic),
-      mode: result.mode || 'DEMO',
-    };
+    await investigationJobService.processInvestigation(existingRecord.investigation_id);
 
-    await investigationService.updateInvestigation(existingRecord.investigation_id, {
-      status: 'COMPLETED',
-      progress: 100,
-      current_step: 'INVESTIGATION COMPLETED',
-      completed_at: new Date().toISOString(),
-      results: withInvestigation,
-    });
+    const finalRecord = await investigationService.getInvestigation(existingRecord.investigation_id);
+    const result = finalRecord?.results || finalRecord;
 
-    return res.json(withInvestigation);
+    if (!result || finalRecord?.status !== 'completed') {
+      return res.status(500).json({
+        error: true,
+        code: 'INVESTIGATION_FAILED',
+        message: finalRecord?.last_error?.message || 'Investigation processing failed.',
+      });
+    }
+
+    return res.json(result);
   } catch (error) {
     next(error);
   }

@@ -45,6 +45,40 @@ export class InvestigationRepository {
     const result = await Investigation.deleteOne({ investigation_id: id });
     return result.deletedCount > 0;
   }
+
+  async claimInvestigation(id) {
+    await getMongooseConnection();
+    const doc = await Investigation.findOneAndUpdate(
+      { investigation_id: id, status: 'queued' },
+      {
+        $set: {
+          status: 'running',
+          started_at: new Date(),
+        },
+      },
+      { new: true }
+    );
+    return doc ? toPlain(doc) : null;
+  }
+
+  async findStaleRunning(staleThreshold) {
+    await getMongooseConnection();
+    const threshold = new Date(Date.now() - staleThreshold);
+    const docs = await Investigation.find({
+      status: { $in: ['running', 'retrying'] },
+      updated_at: { $lt: threshold },
+    });
+    return docs.map(toPlain);
+  }
+
+  async findRetryableFailed(maxRetries) {
+    await getMongooseConnection();
+    const docs = await Investigation.find({
+      status: 'failed',
+      retry_count: { $lt: maxRetries },
+    });
+    return docs.map(toPlain);
+  }
 }
 
 export default new InvestigationRepository();

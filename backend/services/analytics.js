@@ -3,8 +3,8 @@ import investigationService from '../services/investigations/investigationServic
 
 export async function getAnalytics() {
   const investigations = await investigationService.listInvestigations();
-  const completed = investigations.filter((item) => item.status === 'COMPLETED').length;
-  const active = investigations.filter((item) => item.status === 'PENDING' || item.status === 'PROCESSING').length;
+  const completed = investigations.filter((item) => item.status === 'completed').length;
+  const active = investigations.filter((item) => ['queued', 'running', 'retrying'].includes(item.status)).length;
 
   return {
     totalCases: investigations.length,
@@ -18,7 +18,7 @@ export async function getAnalytics() {
     recentActivity: investigations.slice(0, 10).map((item) => ({
       timestamp: item.created_at,
       event: `Investigation ${item.status}`,
-      severity: item.status === 'COMPLETED' ? 'high' : 'medium',
+      severity: item.status === 'completed' ? 'high' : 'medium',
     })),
     synthetic: config.DEMO_MODE,
     mode: config.DEMO_MODE ? 'DEMO' : 'LIVE',

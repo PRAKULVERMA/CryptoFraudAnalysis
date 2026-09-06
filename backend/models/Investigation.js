@@ -58,7 +58,7 @@ const investigationSchema = new mongoose.Schema(
       default: 3,
     },
     last_error: {
-      type: String,
+      type: mongoose.Schema.Types.Mixed,
       default: null,
     },
     error: {
