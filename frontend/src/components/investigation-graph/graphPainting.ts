@@ -154,9 +154,9 @@ export function paintEdgeLabel(
 
 /** Simple containment paint for reliable hover/click hit areas. */
 export function paintNodePointerArea(
-  ctx: CanvasRenderingContext2D,
   node: DerivedNode,
-  color: string
+  color: string,
+  ctx: CanvasRenderingContext2D
 ): void {
   const x = (node as any).x ?? 0;
   const y = (node as any).y ?? 0;

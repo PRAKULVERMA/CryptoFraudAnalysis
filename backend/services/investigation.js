@@ -5,6 +5,7 @@ import { analyzeEvidenceRisk } from './detection/evidenceRiskService.js';
 import { attributeDestination } from './attribution/attributionService.js';
 import { attributeExchange, ATTRIBUTION_STATUS } from './attribution/exchangeAttributionService.js';
 import { screenInvestigation } from './compliance/index.js';
+import { buildInvestigationIntelligence } from './intelligence/intelligenceService.js';
 
 export async function analyzeWallet(address, network, investigationId) {
   const normalizedNetwork = String(network || '').trim().toLowerCase();
@@ -54,6 +55,27 @@ export async function analyzeWallet(address, network, investigationId) {
     destination,
   });
 
+  let investigation_intelligence;
+  try {
+    investigation_intelligence = await buildInvestigationIntelligence({
+      nodes: traceResult.nodes || [],
+      edges: traceResult.edges || [],
+      trace_summary: traceResult.trace_summary || {},
+      attribution,
+      destination,
+      compliance_screening,
+      limits_reached: traceResult.trace_summary?.limits_reached || [],
+      network: normalizedNetwork,
+      rootAddress: address,
+    });
+  } catch {
+    investigation_intelligence = {
+      status: 'UNAVAILABLE',
+      reason: 'Intelligence analysis failed.',
+      evidence_confidence: 0,
+    };
+  }
+
   const isEth = normalizedNetwork === 'ethereum';
 
   return {
@@ -82,6 +104,7 @@ export async function analyzeWallet(address, network, investigationId) {
     risk_factors: risk.riskFactors,
     evidence: risk.evidence,
     graph_analysis: risk.graph_analysis,
+    investigation_intelligence,
     destination_intelligence: {
       primary_destination: destination,
       attribution,

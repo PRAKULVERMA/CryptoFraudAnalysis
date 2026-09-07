@@ -15,6 +15,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { InvestigationReportPreview } from './InvestigationReportPreview';
+import { publishInvestigation } from './investigation-graph/investigationGraphStore';
 
 interface LiveInvestigationSearchProps {
   onSelectWalletForGraph?: (wallet: { address: string; network: string; risk: number }) => void;
@@ -115,6 +116,13 @@ export const LiveInvestigationSearch: React.FC<LiveInvestigationSearchProps> = (
       }
 
       setInvestigationResult(result);
+
+      // Feed the investigation graph workspace (Money Trail section) with the live result.
+      publishInvestigation(result, {
+        address: address.trim(),
+        network: network.toLowerCase(),
+        source: 'search',
+      });
 
       if (onSelectWalletForGraph) {
         onSelectWalletForGraph({
