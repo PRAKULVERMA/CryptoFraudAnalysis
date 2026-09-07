@@ -76,6 +76,8 @@ export async function analyzeWallet(address, network, investigationId) {
     destination,
     attribution,
     patterns: risk.patterns,
+    nodes: Array.isArray(traceResult.nodes) ? traceResult.nodes : [],
+    edges: Array.isArray(traceResult.edges) ? traceResult.edges : [],
     trace_summary: traceResult.trace_summary,
     risk_factors: risk.riskFactors,
     evidence: risk.evidence,
