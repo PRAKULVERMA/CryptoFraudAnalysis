@@ -21,6 +21,8 @@ function assertDefined(actual, label) {
 
 function buildTrace({ nodes = [], edges = [], trace_summary = {} } = {}) {
   return {
+    network: 'ethereum',
+    rootAddress: '0xroot',
     nodes: nodes.map((n) => ({ address: n, network: 'ethereum', hop: 0 })),
     edges: edges.map((e) => ({
       source: e.from,
@@ -110,7 +112,8 @@ function buildConvergenceTrace() {
     nodes: ['0xroot', '0xhop1', '0xhop2', '0xdest'],
     edges: [
       { from: '0xroot', to: '0xhop1', value: 1.0, timestamp: '2026-01-01T00:00:00Z', direction: 'outgoing', hash: '0xconv1', hop: 1 },
-      { from: '0xhop2', to: '0xdest', value: 0.8, timestamp: '2026-01-01T00:01:00Z', direction: 'outgoing', hash: '0xconv2', hop: 2 },
+      { from: '0xhop1', to: '0xdest', value: 0.8, timestamp: '2026-01-01T00:01:00Z', direction: 'outgoing', hash: '0xconv2', hop: 2 },
+      { from: '0xhop2', to: '0xdest', value: 0.7, timestamp: '2026-01-01T00:01:30Z', direction: 'outgoing', hash: '0xconv3', hop: 2 },
     ],
     trace_summary: { max_hops: 2, max_hops_reached: 2 },
   });
@@ -191,8 +194,8 @@ async function runTests() {
   allPassed = assertEqual(multi.status, 'COMPLETED', 'status completed') && allPassed;
   allPassed = assertEqual(multi.path_intelligence.length >= 1, true, 'path intelligence generated') && allPassed;
   const multiPath = multi.path_intelligence[0];
-  allPassed = assertEqual(multiPath?.hop_count, 2, 'hop count is 2') && allPassed;
-  allPassed = assertEqual(multiPath?.wallets_in_path?.length, 3, 'three wallets in path') && allPassed;
+  allPassed = assertEqual(multiPath?.hop_count, 3, 'hop count is 3') && allPassed;
+  allPassed = assertEqual(multiPath?.wallets_in_path?.length, 4, 'four wallets in path') && allPassed;
   allPassed = assertEqual(multiPath?.destination, '0xdest', 'destination is terminal') && allPassed;
 
   // Test 3 — Fan-out

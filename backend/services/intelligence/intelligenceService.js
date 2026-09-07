@@ -223,7 +223,7 @@ function detectBehavioralPatterns(edges, walletProfiles, rootAddress) {
         transaction_hashes: txs.map((tx) => truncateString(tx.hash || tx.transactionId || '', 128)),
         evidence: {
           transaction_hashes: txs.map((tx) => truncateString(tx.hash || tx.transactionId || '', 128)),
-          total_value,
+          total_value: totalValue,
           transaction_count: txs.length,
         },
         severity: 'LOW',
@@ -541,7 +541,8 @@ function buildInvestigationSummary({ rootAddress, network, trace_summary, wallet
   };
 }
 
-export async function buildInvestigationIntelligence({ nodes = [], edges = [], trace_summary = {}, attribution, destination, compliance_screening, limits_reached = [], network, rootAddress }) {
+export async function buildInvestigationIntelligence(input = {}) {
+  const { nodes = [], edges = [], trace_summary = {}, attribution, destination, compliance_screening, limits_reached = [], network, rootAddress } = input || {};
   const startTime = Date.now();
 
   try {
@@ -635,8 +636,8 @@ export async function buildInvestigationIntelligence({ nodes = [], edges = [], t
       walletProfiles,
       patterns,
       convergencePoints,
-      fanInWallets,
-      fanOutWallets,
+      fanInWallets: fan_in_wallets,
+      fanOutWallets: fan_out_wallets,
       divergenceChains,
       repeatedDestinations,
       timeline,
