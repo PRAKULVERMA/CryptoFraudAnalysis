@@ -21,6 +21,7 @@
     "motion": "^12.23.24",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
+    "react-force-graph-2d": "^1.29.1",
     "three": "^0.185.1",
     "vite": "^6.2.3"
   },

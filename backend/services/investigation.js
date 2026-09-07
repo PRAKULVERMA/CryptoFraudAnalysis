@@ -3,6 +3,8 @@ import createBlockchainProvider from './blockchain/providerFactory.js';
 import { traceWallet } from './tracing/traceService.js';
 import { analyzeEvidenceRisk } from './detection/evidenceRiskService.js';
 import { attributeDestination } from './attribution/attributionService.js';
+import { attributeExchange, ATTRIBUTION_STATUS } from './attribution/exchangeAttributionService.js';
+import { screenInvestigation } from './compliance/index.js';
 
 export async function analyzeWallet(address, network, investigationId) {
   const normalizedNetwork = String(network || '').trim().toLowerCase();
@@ -16,7 +18,41 @@ export async function analyzeWallet(address, network, investigationId) {
     trace_summary: traceResult.trace_summary || {},
     investigationId: investigationId || `${address}-${normalizedNetwork}`,
   });
-  const destination = attributeDestination(traceResult, { synthetic: Boolean(txData.synthetic) });
+  const destination = await attributeDestination(traceResult, { synthetic: Boolean(txData.synthetic) });
+
+  let attribution;
+  try {
+    attribution = await attributeExchange({
+      address,
+      network: normalizedNetwork,
+      transactions: traceResult.edges || [],
+      trace: traceResult,
+      trace_summary: traceResult.trace_summary || {},
+    });
+  } catch (error) {
+    attribution = {
+      entity: null,
+      entityType: null,
+      attributionStatus: ATTRIBUTION_STATUS.UNAVAILABLE,
+      confidence: 0,
+      evidence: [],
+      source: null,
+      data_source: 'NONE',
+      network: normalizedNetwork,
+      address,
+      note: 'Attribution service failed; investigation continues.',
+      synthetic: false,
+      mode: config.DEMO_MODE ? 'DEMO' : 'LIVE',
+      error: { message: String(error?.message || error), retryable: true },
+    };
+  }
+
+  const compliance_screening = await screenInvestigation({
+    rootAddress: address,
+    network: normalizedNetwork,
+    graph: traceResult,
+    destination,
+  });
 
   const isEth = normalizedNetwork === 'ethereum';
 
@@ -34,10 +70,11 @@ export async function analyzeWallet(address, network, investigationId) {
     destinationExchange: destination.entity_name || destination.destination_type || 'UNKNOWN',
     confidence: `${risk.confidence}%`,
     peelingChains: risk.patterns.length ? `Detected ${risk.patterns.length} graph-derived patterns` : 'No peeling-chain pattern identified',
-    ofacMatch: false,
+    ofacMatch: compliance_screening.summary.matches > 0,
     synthetic: Boolean(txData.synthetic),
     mode: config.DEMO_MODE ? 'DEMO' : 'LIVE',
     destination,
+    attribution,
     patterns: risk.patterns,
     trace_summary: traceResult.trace_summary,
     risk_factors: risk.riskFactors,
@@ -45,6 +82,7 @@ export async function analyzeWallet(address, network, investigationId) {
     graph_analysis: risk.graph_analysis,
     destination_intelligence: {
       primary_destination: destination,
+      attribution,
       destinations: (traceResult.edges || [])
         .filter((edge) => edge.direction === 'outgoing')
         .map((edge) => ({
@@ -56,14 +94,16 @@ export async function analyzeWallet(address, network, investigationId) {
           direction: edge.direction,
           hop: edge.hop,
         })),
-      verified_entities: destination.verification_level === 'VERIFIED' ? [destination] : [],
-      unknown_destinations: destination.verification_level === 'UNKNOWN' ? [destination] : [],
+      verified_entities: attribution.attributionStatus === ATTRIBUTION_STATUS.VERIFIED ? [attribution] : [],
+      unknown_destinations: attribution.attributionStatus === ATTRIBUTION_STATUS.UNKNOWN ? [attribution] : [],
       attribution_summary: {
         total_destinations: (traceResult.edges || []).filter((edge) => edge.direction === 'outgoing').length,
-        attributed_count: destination.verification_level !== 'UNKNOWN' ? 1 : 0,
-        unknown_count: destination.verification_level === 'UNKNOWN' ? 1 : 0,
+        attributed_count: attribution.attributionStatus === ATTRIBUTION_STATUS.VERIFIED || attribution.attributionStatus === ATTRIBUTION_STATUS.SUPPORTED ? 1 : 0,
+        unknown_count: attribution.attributionStatus === ATTRIBUTION_STATUS.UNKNOWN ? 1 : 0,
+        status: attribution.attributionStatus,
       },
     },
+    compliance_screening,
   };
 }
 
