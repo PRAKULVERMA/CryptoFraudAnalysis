@@ -260,16 +260,40 @@ export function deriveGraph(result: InvestigationResult): DerivedGraph {
 }
 
 /** Filter semantics operate strictly on derived real data; empty result = honest empty state. */
+/** Filter semantics operate strictly on derived real data; empty result = honest empty state. */
 export function applyFilter(
   graph: DerivedGraph,
   filter: GraphFilter
 ): { nodes: DerivedNode[]; edges: DerivedEdge[] } {
-  const { nodes, edges } = graph;
+  const { nodes, edges, rootKey } = graph;
   const nodeKeys = new Set(nodes.map((n) => n.key));
   const pickEdges = (predicate: (e: DerivedEdge) => boolean): DerivedEdge[] =>
     edges.filter((e) => nodeKeys.has(e.source) && nodeKeys.has(e.target) && predicate(e));
   const withNeighbors = (keys: Set<string>): DerivedNode[] =>
     nodes.filter((n) => keys.has(n.key));
+
+  // Ensure root wallet is always visible and edges to visible nodes are preserved
+  const withRoot = (keys: Set<string>, visibleEdges: DerivedEdge[]) => {
+    if (!rootKey || filter === 'all') return { keys, visibleEdges };
+    const finalKeys = new Set(keys);
+    finalKeys.add(rootKey);
+    const rootEdges = edges.filter(
+      (e) =>
+        nodeKeys.has(e.source) &&
+        nodeKeys.has(e.target) &&
+        (e.source === rootKey || e.target === rootKey) &&
+        finalKeys.has(e.source) &&
+        finalKeys.has(e.target)
+    );
+    const edgeSet = new Set(visibleEdges.map((e) => e.id));
+    rootEdges.forEach((e) => {
+      if (!edgeSet.has(e.id)) {
+        visibleEdges.push(e);
+        edgeSet.add(e.id);
+      }
+    });
+    return { keys: finalKeys, visibleEdges };
+  };
 
   switch (filter) {
     case 'root': {
@@ -285,18 +309,22 @@ export function applyFilter(
       };
     }
     case 'high-risk': {
-      if (!graph.hasRiskFlags) return { nodes: [], edges: [] };
-      const keys = graph.flaggedKeys;
-      return {
-        nodes: withNeighbors(keys),
-        edges: pickEdges((e) => keys.has(e.source) && keys.has(e.target)),
-      };
+      if (!graph.hasRiskFlags) {
+        if (rootKey) return { nodes: withNeighbors(new Set([rootKey])), edges: [] };
+        return { nodes: [], edges: [] };
+      }
+      const keys = new Set(graph.flaggedKeys);
+      const visibleEdges = pickEdges((e) => keys.has(e.source) && keys.has(e.target));
+      const { keys: finalKeys, visibleEdges: finalEdges } = withRoot(keys, visibleEdges);
+      return { nodes: withNeighbors(finalKeys), edges: finalEdges };
     }
     case 'incoming': {
       const keys = new Set(
         edges.filter((e) => e.direction === 'incoming').flatMap((e) => [e.source, e.target])
       );
-      return { nodes: withNeighbors(keys), edges: pickEdges((e) => e.direction === 'incoming') };
+      const visibleEdges = pickEdges((e) => e.direction === 'incoming');
+      const { keys: finalKeys, visibleEdges: finalEdges } = withRoot(keys, visibleEdges);
+      return { nodes: withNeighbors(finalKeys), edges: finalEdges };
     }
     case 'outgoing': {
       const keys = new Set(
@@ -304,28 +332,25 @@ export function applyFilter(
           .filter((e) => e.direction === 'outgoing' || e.direction === 'self-transfer')
           .flatMap((e) => [e.source, e.target])
       );
-      return {
-        nodes: withNeighbors(keys),
-        edges: pickEdges(
-          (e) => e.direction === 'outgoing' || e.direction === 'self-transfer'
-        ),
-      };
+      const visibleEdges = pickEdges(
+        (e) => e.direction === 'outgoing' || e.direction === 'self-transfer'
+      );
+      const { keys: finalKeys, visibleEdges: finalEdges } = withRoot(keys, visibleEdges);
+      return { nodes: withNeighbors(finalKeys), edges: finalEdges };
     }
     case 'verified': {
       const keys = new Set(nodes.filter((n) => n.kind === 'verified').map((n) => n.key));
-      return {
-        nodes: withNeighbors(keys),
-        edges: pickEdges((e) => keys.has(e.source) && keys.has(e.target)),
-      };
+      const visibleEdges = pickEdges((e) => keys.has(e.source) && keys.has(e.target));
+      const { keys: finalKeys, visibleEdges: finalEdges } = withRoot(keys, visibleEdges);
+      return { nodes: withNeighbors(finalKeys), edges: finalEdges };
     }
     case 'unknown': {
       const keys = new Set(
         nodes.filter((n) => n.kind === 'unknown-destination').map((n) => n.key)
       );
-      return {
-        nodes: withNeighbors(keys),
-        edges: pickEdges((e) => keys.has(e.source) && keys.has(e.target)),
-      };
+      const visibleEdges = pickEdges((e) => keys.has(e.source) && keys.has(e.target));
+      const { keys: finalKeys, visibleEdges: finalEdges } = withRoot(keys, visibleEdges);
+      return { nodes: withNeighbors(finalKeys), edges: finalEdges };
     }
     case 'exchanges': {
       const keys = new Set(
@@ -333,10 +358,9 @@ export function applyFilter(
           .filter((n) => n.attribution && entityTypeOf(n.attribution).includes('exchange'))
           .map((n) => n.key)
       );
-      return {
-        nodes: withNeighbors(keys),
-        edges: pickEdges((e) => keys.has(e.source) && keys.has(e.target)),
-      };
+      const visibleEdges = pickEdges((e) => keys.has(e.source) && keys.has(e.target));
+      const { keys: finalKeys, visibleEdges: finalEdges } = withRoot(keys, visibleEdges);
+      return { nodes: withNeighbors(finalKeys), edges: finalEdges };
     }
     case 'services': {
       const serviceTypes = ['service', 'mixer', 'gambling', 'marketplace', 'wallet', 'merchant'];
@@ -349,17 +373,15 @@ export function applyFilter(
           )
           .map((n) => n.key)
       );
-      return {
-        nodes: withNeighbors(keys),
-        edges: pickEdges((e) => keys.has(e.source) && keys.has(e.target)),
-      };
+      const visibleEdges = pickEdges((e) => keys.has(e.source) && keys.has(e.target));
+      const { keys: finalKeys, visibleEdges: finalEdges } = withRoot(keys, visibleEdges);
+      return { nodes: withNeighbors(finalKeys), edges: finalEdges };
     }
-    case 'all':
+    case ':all':
     default:
       return { nodes, edges };
   }
 }
-
 /** BFS shortest investigation path ROOT → target over the visible graph. */
 export function computePath(
   rootKey: string | null,

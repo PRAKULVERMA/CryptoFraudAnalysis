@@ -45,6 +45,13 @@ export async function getNeo4jDriver() {
       return driver;
     } catch {
       connectionStatus = 'disconnected';
+      try {
+        await driver.close();
+      } catch {
+        // ignore close errors
+      } finally {
+        driver = null;
+      }
     }
   }
 
@@ -61,13 +68,24 @@ export async function getNeo4jDriver() {
   } catch (error) {
     console.error('[Neo4j] Connection verification failed:', error.message);
     connectionStatus = 'disconnected';
-    driver = null;
+    try {
+      await newDriver.close();
+    } catch {
+      // ignore close errors
+    } finally {
+      driver = null;
+    }
     return null;
   }
 }
 
 export function isNeo4jEnabled() {
-  return Boolean(config.NEO4J_ENABLED && config.NEO4J_URI && config.NEO4J_USERNAME && config.NEO4J_PASSWORD !== '');
+  if (!config.NEO4J_ENABLED) return false;
+  if (!config.NEO4J_URI) return false;
+  if (!config.NEO4J_USERNAME) return false;
+  const password = config.NEO4J_PASSWORD;
+  if (password === undefined || password === null || password === '') return false;
+  return true;
 }
 
 export function getNeo4jStatus() {

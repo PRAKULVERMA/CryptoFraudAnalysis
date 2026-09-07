@@ -557,22 +557,29 @@ export class Neo4jGraphService {
     }
   }
 
-  async getWalletGraph(address, network) {
+  async getWalletGraph(address, network, investigationId = null) {
     const driver = await getNeo4jDriver();
     if (!driver) return null;
 
     const session = driver.session();
     try {
       const result = await session.executeRead(async (tx) => {
-        const nodesResult = await tx.run(
-          `MATCH (w:Wallet {normalized_address: $address, network: $network})
-           OPTIONAL MATCH (w)-[r:TRANSFER]->(tgt:Wallet)
-           OPTIONAL MATCH (src:Wallet)-[r2:TRANSFER]->(w)
-           RETURN w,
-                  collect(DISTINCT tgt) AS targets,
-                  collect(DISTINCT src) AS sources`,
-          { address: normalizeAddress(address), network }
-        );
+        const investigationFilter = investigationId
+          ? `MATCH (inv:Investigation {id: $investigationId})-[:CONTAINS]->(w:Wallet {normalized_address: $address, network: $network})
+             OPTIONAL MATCH (w)-[r:TRANSFER]->(tgt:Wallet)
+             OPTIONAL MATCH (src:Wallet)-[r2:TRANSFER]->(w)
+             WHERE (inv)-[:CONTAINS]->(tgt) AND (inv)-[:CONTAINS]->(src)
+             RETURN w, collect(DISTINCT tgt) AS targets, collect(DISTINCT src) AS sources`
+          : `MATCH (w:Wallet {normalized_address: $address, network: $network})
+             OPTIONAL MATCH (w)-[r:TRANSFER]->(tgt:Wallet)
+             OPTIONAL MATCH (src:Wallet)-[r2:TRANSFER]->(w)
+             RETURN w, collect(DISTINCT tgt) AS targets, collect(DISTINCT src) AS sources`;
+
+        const nodesResult = await tx.run(investigationFilter, {
+          address: normalizeAddress(address),
+          network,
+          ...(investigationId ? { investigationId } : {}),
+        });
 
         if (nodesResult.records.length === 0) {
           return { nodes: [], edges: [] };
@@ -586,14 +593,25 @@ export class Neo4jGraphService {
         const nodes = [wallet, ...targets, ...sources];
         const uniqueNodes = Array.from(new Map(nodes.map((n) => [n.normalized_address, n])).values());
 
-        const edgesResult = await tx.run(
-          `MATCH (src:Wallet {normalized_address: $address, network: $network})-[r:TRANSFER]->(tgt:Wallet)
-           RETURN r, src, tgt
-           UNION ALL
-           MATCH (src:Wallet)-[r:TRANSFER]->(tgt:Wallet {normalized_address: $address, network: $network})
-           RETURN r, src, tgt`,
-          { address: normalizeAddress(address), network }
-        );
+        const edgesQuery = investigationId
+          ? `MATCH (inv:Investigation {id: $investigationId})-[:CONTAINS]->(src:Wallet {normalized_address: $address, network: $network})-[r:TRANSFER]->(tgt:Wallet)
+             WHERE (inv)-[:CONTAINS]->(tgt)
+             RETURN r, src, tgt
+             UNION ALL
+             MATCH (inv:Investigation {id: $investigationId})-[:CONTAINS]->(tgt:Wallet {normalized_address: $address, network: $network})-[r:TRANSFER]->(src:Wallet)
+             WHERE (inv)-[:CONTAINS]->(src)
+             RETURN r, src, tgt`
+          : `MATCH (src:Wallet {normalized_address: $address, network: $network})-[r:TRANSFER]->(tgt:Wallet)
+             RETURN r, src, tgt
+             UNION ALL
+             MATCH (src:Wallet)-[r:TRANSFER]->(tgt:Wallet {normalized_address: $address, network: $network})
+             RETURN r, src, tgt`;
+
+        const edgesResult = await tx.run(edgesQuery, {
+          address: normalizeAddress(address),
+          network,
+          ...(investigationId ? { investigationId } : {}),
+        });
 
         const edges = edgesResult.records.map((record) => {
           const rel = record.get('r');
