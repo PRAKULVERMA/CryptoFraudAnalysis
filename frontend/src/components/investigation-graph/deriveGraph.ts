@@ -260,7 +260,6 @@ export function deriveGraph(result: InvestigationResult): DerivedGraph {
 }
 
 /** Filter semantics operate strictly on derived real data; empty result = honest empty state. */
-/** Filter semantics operate strictly on derived real data; empty result = honest empty state. */
 export function applyFilter(
   graph: DerivedGraph,
   filter: GraphFilter
@@ -377,8 +376,7 @@ export function applyFilter(
       const { keys: finalKeys, visibleEdges: finalEdges } = withRoot(keys, visibleEdges);
       return { nodes: withNeighbors(finalKeys), edges: finalEdges };
     }
-    case ':all':
-    default:
+    case 'all':
       return { nodes, edges };
   }
 }

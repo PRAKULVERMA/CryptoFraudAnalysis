@@ -12,7 +12,7 @@ export async function analyzeWallet(address, network, investigationId) {
   const provider = createBlockchainProvider();
   const txData = await provider.getWalletTransactions(address, normalizedNetwork);
   const traceResult = await traceWallet(address, normalizedNetwork, provider, investigationId);
-  const risk = analyzeEvidenceRisk({
+  const risk = await analyzeEvidenceRisk({
     address,
     network: normalizedNetwork,
     transactions: traceResult.edges || [],

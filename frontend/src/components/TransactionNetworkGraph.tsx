@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import {
@@ -29,8 +29,6 @@ import {
 } from './investigation-graph/deriveGraph';
 import {
   useInvestigationState,
-  runInvestigation,
-  clearInvestigation,
 } from './investigation-graph/investigationGraphStore';
 import {
   InvestigationHeader,
@@ -42,11 +40,11 @@ import {
   paintNode,
   paintEdgeLabel,
   paintNodePointerArea,
+  nodeVisualRadius,
   EDGE_COLOR,
   PATH_COLOR,
 } from './investigation-graph/graphPainting';
 import { assetForNetwork } from './investigation-graph/graphFormat';
-import { Chip } from './investigation-graph/ui';
 
 /** Real engine pipeline labels (investigationJobService current_step vocabulary). */
 const PIPELINE_STEPS = [
@@ -218,6 +216,19 @@ export const TransactionNetworkGraph: React.FC = () => {
     return () => document.removeEventListener('fullscreenchange', onChange);
   }, []);
 
+  useEffect(() => {
+    if (!selection) return;
+    if (selection.kind === 'node') {
+      if (!filtered.nodes.some((n) => n.key === selection.node.key)) {
+        setSelection(null);
+      }
+    } else if (selection.kind === 'edge') {
+      if (!filtered.edges.some((e) => e.id === selection.edge.id)) {
+        setSelection(null);
+      }
+    }
+  }, [filtered, selection]);
+
   const toggleFullscreen = useCallback(() => {
     if (document.fullscreenElement) {
       document.exitFullscreen?.();
@@ -311,8 +322,6 @@ export const TransactionNetworkGraph: React.FC = () => {
       ctx.save();
       ctx.globalAlpha = dimmed ? 0.05 : 1;
       ctx.beginPath();
-      ctx.moveTo(sx, sy);
-      ctx.lineTo(tx, ty);
       ctx.lineWidth = selected ? 2.4 : onPath ? 1.6 : 1;
       ctx.strokeStyle = selected
         ? '#E7D7BF'
@@ -321,20 +330,11 @@ export const TransactionNetworkGraph: React.FC = () => {
           : EDGE_COLOR;
       ctx.stroke();
 
-      if (!reduceMotion && !dimmed && (onPath || selected)) {
-        const flowT = (Date.now() % 1600) / 1600;
-        const px = sx + (tx - sx) * flowT;
-        const py = sy + (ty - sy) * flowT;
-        ctx.beginPath();
-        ctx.arc(px, py, 1.6, 0, 2 * Math.PI);
-        ctx.fillStyle = '#E7D7BF';
-        ctx.fill();
-      }
-
       ctx.beginPath();
       const angle = Math.atan2(ty - sy, tx - sx);
-      const headX = tx - Math.cos(angle) * ((obj.target?.__r ?? 6) + 2);
-      const headY = ty - Math.sin(angle) * ((obj.target?.__r ?? 6) + 2);
+      const targetRadius = typeof obj.target === 'object' && obj.target !== null ? nodeVisualRadius(obj.target) : 6;
+      const headX = tx - Math.cos(angle) * (targetRadius + 2);
+      const headY = ty - Math.sin(angle) * (targetRadius + 2);
       ctx.translate(headX, headY);
       ctx.rotate(angle);
       ctx.moveTo(0, 0);
@@ -354,13 +354,20 @@ export const TransactionNetworkGraph: React.FC = () => {
         });
       }
     },
-    [selection, path, dimForLink, asset, reduceMotion]
+    [selection, path, dimForLink, asset]
   );
-
-  const showEmptyGraph =
-    !isRunning && !error && result && graphData.nodes.length === 0 && filter !== 'all';
+  const hasTransactions = result && (result.trace_summary?.transactions_analyzed ?? 0) > 0;
   const showNoTx =
     !isRunning && !error && result && status.code === 'NO_TRANSACTIONS';
+  const showProviderError = !isRunning && !error && result && status.code === 'PROVIDER_ERROR';
+  const showEmptyGraph =
+    !isRunning && !error && result && !showNoTx && !showProviderError && graphData.nodes.length === 0;
+  const emptyGraphReason =
+    filter !== 'all'
+      ? 'filter'
+      : hasTransactions
+        ? 'topology'
+        : 'no-result';
 
   return (
     <section id="graph-network" className="relative z-10 py-24 px-6 sm:px-10 max-w-7xl mx-auto">
@@ -500,15 +507,39 @@ export const TransactionNetworkGraph: React.FC = () => {
             )}
             {!isRunning && !error && showEmptyGraph && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
-                <span className="text-[10px] font-mono uppercase tracking-[0.25em] text-neutral-500">
-                  No nodes match this filter
-                </span>
-                <p className="text-xs font-mono text-neutral-600">
-                  No node in this trace carries that classification.
-                </p>
+                {emptyGraphReason === 'filter' && (
+                  <>
+                    <span className="text-[10px] font-mono uppercase tracking-[0.25em] text-neutral-500">
+                      No nodes match this filter
+                    </span>
+                    <p className="text-xs font-mono text-neutral-600">
+                      No node in this trace carries that classification.
+                    </p>
+                  </>
+                )}
+                {emptyGraphReason === 'topology' && (
+                  <>
+                    <span className="text-[10px] font-mono uppercase tracking-[0.25em] text-neutral-500">
+                      No Graph Topology Returned
+                    </span>
+                    <p className="text-xs font-mono text-neutral-600 max-w-md">
+                      The investigation completed but no topology graph was returned for this wallet.
+                    </p>
+                  </>
+                )}
+                {emptyGraphReason === 'no-result' && (
+                  <>
+                    <span className="text-[10px] font-mono uppercase tracking-[0.25em] text-neutral-500">
+                      Nothing to Graph
+                    </span>
+                    <p className="text-xs font-mono text-neutral-600">
+                      The investigation returned no graphable data for this wallet.
+                    </p>
+                  </>
+                )}
               </div>
             )}
-            {!isRunning && !error && !showNoTx && graphData.nodes.length > 0 && (
+            {!isRunning && !error && !showNoTx && !showEmptyGraph && graphData.nodes.length > 0 && (
               <ForceGraph2D
                 ref={graphRef}
                 width={dims.width}
@@ -532,7 +563,19 @@ export const TransactionNetworkGraph: React.FC = () => {
                 linkCanvasObjectMode={() => 'after'}
                 onNodeClick={handleNodeClick}
                 onLinkClick={handleLinkClick}
+                onBackgroundClick={() => setSelection(null)}
                 onNodeHover={(n: any) => setHoverKey(n ? n.key : null)}
+                linkDirectionalParticles={(l: any) => {
+                  if (reduceMotion) return 0;
+                  const s = typeof l.source === 'object' ? l.source.key : l.source;
+                  const t = typeof l.target === 'object' ? l.target.key : l.target;
+                  const isSelected = selection?.kind === 'edge' && selection.edge.id === l.id;
+                  const isOnPath = selection?.kind === 'node' && path.linkIds.has(`${s}->${t}`);
+                  return isSelected || isOnPath ? 3 : 0;
+                }}
+                linkDirectionalParticleWidth={2}
+                linkDirectionalParticleSpeed={0.015}
+                linkDirectionalParticleColor={() => PATH_COLOR}
                 onEngineStop={() => {
                   if (!reduceMotion) graphRef.current?.zoomToFit(700, 48);
                 }}

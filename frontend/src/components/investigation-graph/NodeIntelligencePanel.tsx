@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { ShieldAlert, Building2, ShieldQuestion } from 'lucide-react';
 import type { DerivedNode } from './deriveGraph';
 import type { InvestigationResult } from './investigationGraphStore';
@@ -116,9 +116,6 @@ export const NodeIntelligencePanel = ({
         </div>
         {attribution && (entity || status) ? (
           <div>
-            <InfoRow label="Entity">
-              {entity || <NaValue>No entity name provided</NaValue>}
-            </InfoRow>
             <InfoRow label="Status">
               <span
                 className={
@@ -126,17 +123,40 @@ export const NodeIntelligencePanel = ({
                     ? 'text-emerald-400'
                     : status === 'UNKNOWN' || status === 'ATTRIBUTION UNAVAILABLE'
                       ? 'text-neutral-500'
-                      : 'text-[#C4A482]'
+                      : status === 'CONFLICTING'
+                        ? 'text-amber-400'
+                        : 'text-[#C4A482]'
                 }
               >
                 {status || 'N/A'}
               </span>
             </InfoRow>
-            <InfoRow label="Entity Type">{entityType || <NaValue />}</InfoRow>
-            <InfoRow label="Confidence">{attributionConfidence}</InfoRow>
-            <InfoRow label="Source">
-              {attribution?.source ?? attribution?.data_source ?? <NaValue />}
-            </InfoRow>
+            {status === 'CONFLICTING' ? (
+              <>
+                <InfoRow label="Entity">
+                  <NaValue>N/A</NaValue>
+                </InfoRow>
+                <div className="mt-2 p-3 rounded-xl bg-amber-500/5 border border-amber-500/20">
+                  <p className="text-[10px] font-mono text-amber-300 leading-relaxed font-semibold">
+                    CONFLICTING ATTRIBUTION
+                  </p>
+                  <p className="text-[10px] font-mono text-neutral-400 leading-relaxed mt-1">
+                    Multiple sources disagree — no entity is asserted.
+                  </p>
+                </div>
+              </>
+            ) : (
+              <>
+                <InfoRow label="Entity">
+                  {entity || <NaValue>No entity name provided</NaValue>}
+                </InfoRow>
+                <InfoRow label="Entity Type">{entityType || <NaValue />}</InfoRow>
+                <InfoRow label="Confidence">{attributionConfidence}</InfoRow>
+                <InfoRow label="Source">
+                  {attribution?.source ?? attribution?.data_source ?? <NaValue />}
+                </InfoRow>
+              </>
+            )}
             {evidenceItems.length > 0 && (
               <div className="mt-2 space-y-1.5">
                 <div className="text-[9px] font-mono uppercase tracking-widest text-neutral-500">
