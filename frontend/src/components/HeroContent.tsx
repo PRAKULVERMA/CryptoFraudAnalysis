@@ -111,10 +111,10 @@ export const HeroContent: React.FC<HeroContentProps> = ({
         <button
           id="hero-visualize-graph-btn"
           onClick={scrollToGraph}
-          className="px-7 py-3.5 rounded-full glass-border hover:bg-white hover:text-black text-neutral-200 font-inter text-[10px] uppercase tracking-widest transition-all duration-300 flex items-center gap-2 active:scale-95 cursor-pointer shadow-lg shadow-black/60"
+          className="group px-7 py-3.5 rounded-full glass-border hover:bg-white hover:text-black text-neutral-200 font-inter text-[10px] uppercase tracking-widest transition-all duration-300 flex items-center gap-2 active:scale-95 cursor-pointer shadow-lg shadow-black/60"
         >
           <span>Visualize Money Trail</span>
-          <ArrowRight className="w-3.5 h-3.5 opacity-60 group-hover:opacity-100" />
+          <ArrowRight className="w-3.5 h-3.5 opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
         </button>
       </motion.div>
 

@@ -54,6 +54,12 @@ export const LiveInvestigationSearch: React.FC<LiveInvestigationSearchProps> = (
     setInvestigationResult(null);
   };
 
+  /** Never render undefined/null as blank space — fall back to N/A. */
+  const val = (v: any): string => {
+    if (v === null || v === undefined || v === '') return 'N/A';
+    return String(v);
+  };
+
   const validateAddress = (addr: string, net: 'Bitcoin' | 'Ethereum'): boolean => {
     const trimmed = addr.trim();
     if (!trimmed) {
@@ -327,14 +333,14 @@ export const LiveInvestigationSearch: React.FC<LiveInvestigationSearchProps> = (
                   <div>
                     <div className="flex items-center gap-2 mb-1">
                       <span className="px-2.5 py-0.5 rounded bg-red-500/20 border border-red-500/40 text-red-400 text-[10px] font-mono font-bold uppercase tracking-wider">
-                        {investigationResult.riskLevel}
+                        {val(investigationResult.riskLevel)}
                       </span>
                       <span className="text-[11px] font-mono text-neutral-400">
-                        {investigationResult.caseId}
+                        {val(investigationResult.caseId)}
                       </span>
                     </div>
                     <div className="font-mono text-sm sm:text-base text-white break-all flex items-center gap-2">
-                      <span className="text-[#A58B6F] font-bold">TARGET:</span> {investigationResult.address}
+                      <span className="text-[#A58B6F] font-bold">TARGET:</span> {val(investigationResult.address)}
                     </div>
                   </div>
 
@@ -343,7 +349,7 @@ export const LiveInvestigationSearch: React.FC<LiveInvestigationSearchProps> = (
                     <div>
                       <div className="text-[9px] font-mono uppercase tracking-widest text-neutral-400">RISK SCORE</div>
                       <div className="font-playfair text-2xl font-bold text-red-400">
-                        {investigationResult.riskScore} <span className="text-xs font-normal text-neutral-400">/ 100</span>
+                        {typeof investigationResult.riskScore === 'number' ? investigationResult.riskScore : 'N/A'} <span className="text-xs font-normal text-neutral-400">/ 100</span>
                       </div>
                     </div>
                     <div className="w-9 h-9 rounded-full bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-400">
@@ -356,26 +362,26 @@ export const LiveInvestigationSearch: React.FC<LiveInvestigationSearchProps> = (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 py-6">
                   <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/5">
                     <div className="text-[10px] font-mono uppercase tracking-wider text-neutral-400">FUNDS TRACED</div>
-                    <div className="text-base font-semibold text-white mt-1">{investigationResult.fundsTraced}</div>
+                    <div className="text-base font-semibold text-white mt-1">{val(investigationResult.fundsTraced)}</div>
                     <div className="text-[10px] text-emerald-400 mt-0.5">Tainted Volume Tracked</div>
                   </div>
 
                   <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/5">
                     <div className="text-[10px] font-mono uppercase tracking-wider text-neutral-400">HOP DEPTH</div>
-                    <div className="text-base font-semibold text-white mt-1">{investigationResult.hopCount} Intermediary Hops</div>
-                    <div className="text-[10px] text-neutral-400 mt-0.5">{investigationResult.transactionsAnalyzed} Transactions Parsed</div>
+                    <div className="text-base font-semibold text-white mt-1">{val(investigationResult.hopCount)} Intermediary Hops</div>
+                    <div className="text-[10px] text-neutral-400 mt-0.5">{val(investigationResult.transactionsAnalyzed)} Transactions Parsed</div>
                   </div>
 
                   <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/5">
                     <div className="text-[10px] font-mono uppercase tracking-wider text-neutral-400">WALLET CLUSTER</div>
-                    <div className="text-base font-semibold text-amber-300 mt-1 truncate">{investigationResult.clusteringTag}</div>
+                    <div className="text-base font-semibold text-amber-300 mt-1 truncate">{val(investigationResult.clusteringTag)}</div>
                     <div className="text-[10px] text-amber-400 mt-0.5">Automated Peeling Chain Detected</div>
                   </div>
 
                   <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/5">
                     <div className="text-[10px] font-mono uppercase tracking-wider text-neutral-400">EXCHANGE DESTINATION</div>
-                    <div className="text-base font-semibold text-emerald-400 mt-1 truncate">{investigationResult.destinationExchange}</div>
-                    <div className="text-[10px] text-emerald-400 mt-0.5">Confidence: {investigationResult.confidence}</div>
+                    <div className="text-base font-semibold text-emerald-400 mt-1 truncate">{val(investigationResult.destinationExchange)}</div>
+                    <div className="text-[10px] text-emerald-400 mt-0.5">Confidence: {val(investigationResult.confidence)}</div>
                   </div>
                 </div>
 

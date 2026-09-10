@@ -29,6 +29,12 @@ const formatDate = (value?: string) => {
   }
 };
 
+/** Never render undefined/null as blank — fall back to N/A. */
+const val = (v: any): string => {
+  if (v === null || v === undefined || v === '') return 'N/A';
+  return String(v);
+};
+
 const getRiskClass = (riskLevel?: string) => {
   const level = String(riskLevel || '').toUpperCase();
 
@@ -225,13 +231,13 @@ export const InvestigationReportPreview: React.FC<
                   </div>
 
                   <div className="font-mono text-xs sm:text-sm text-white break-all">
-                    {investigation.address}
+                    {val(investigation.address)}
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
                   <span className="px-3 py-1.5 rounded-lg border border-white/10 bg-white/[0.03] text-[10px] text-neutral-300 font-mono uppercase">
-                    {investigation.network}
+                    {val(investigation.network)}
                   </span>
 
                   <span className="px-3 py-1.5 rounded-lg border border-[#A58B6F]/30 bg-[#A58B6F]/10 text-[10px] text-[#C4A482] font-mono uppercase">

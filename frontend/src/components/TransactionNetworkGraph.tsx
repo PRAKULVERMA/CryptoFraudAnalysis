@@ -256,6 +256,14 @@ export const TransactionNetworkGraph: React.FC = () => {
     setSelection({ kind: 'edge', edge: snapshot });
   }, []);
 
+  const safeZoom = (factor: number) => {
+    const g = graphRef.current;
+    if (!g || typeof g.zoom !== 'function') return;
+    const current = typeof g.zoom === 'function' ? g.zoom() : 1;
+    if (!Number.isFinite(current) || current <= 0) return;
+    g.zoom(current * factor, 350);
+  };
+
   const centerRoot = useCallback(() => {
     const root = nodeCacheRef.current.get(derived.rootKey ?? '');
     if (!root || graphRef.current == null) return;
@@ -469,8 +477,8 @@ export const TransactionNetworkGraph: React.FC = () => {
               </button>
             ))}
             <span className="flex-1" />
-            <ToolbarButton icon={<ZoomIn className="w-3.5 h-3.5" />} label="Zoom in" onClick={() => graphRef.current?.zoom(graphRef.current?.zoom() * 1.35, 350)} />
-            <ToolbarButton icon={<ZoomOut className="w-3.5 h-3.5" />} label="Zoom out" onClick={() => graphRef.current?.zoom(graphRef.current?.zoom() / 1.35, 350)} />
+            <ToolbarButton icon={<ZoomIn className="w-3.5 h-3.5" />} label="Zoom in" onClick={() => safeZoom(1.35)} />
+            <ToolbarButton icon={<ZoomOut className="w-3.5 h-3.5" />} label="Zoom out" onClick={() => safeZoom(1 / 1.35)} />
             <ToolbarButton icon={<Crosshair className="w-3.5 h-3.5" />} label="Fit graph" onClick={() => graphRef.current?.zoomToFit(600, 48)} />
             <ToolbarButton icon={<Network className="w-3.5 h-3.5" />} label="Center root wallet" onClick={centerRoot} disabled={!derived.rootKey} />
             <ToolbarButton icon={<RotateCcw className="w-3.5 h-3.5" />} label="Reset view" onClick={resetView} />
@@ -550,7 +558,7 @@ export const TransactionNetworkGraph: React.FC = () => {
                 linkColor={() => 'rgba(0,0,0,0)'}
                 linkWidth={(l: any) => (dimForLink(l) ? 0.4 : 1.4)}
                 linkCurvature={0.08}
-                linkHoverPrecision={6}
+                linkHoverPrecision={12}
                 cooldownTicks={reduceMotion ? 0 : 120}
                 warmupTicks={layout === 'force' ? 60 : 0}
                 enableNodeDrag={layout === 'force'}

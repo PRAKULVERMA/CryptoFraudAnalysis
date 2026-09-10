@@ -150,7 +150,6 @@ export class InvestigationJobService {
         }
 
         console.error(`Investigation ${investigationId} failed permanently after ${attempt} attempt(s).`, safeError(error));
-        if (error?.stack) console.error(error.stack);
 
         await investigationService.updateInvestigation(investigationId, {
           status: 'failed',
