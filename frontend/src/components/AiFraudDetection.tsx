@@ -1,33 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { motion } from 'motion/react';
 import {
   BrainCircuit,
   Network,
   Building2,
-  ShieldAlert,
   Cpu,
-  Layers,
   Sparkles,
-  Zap,
   ArrowUpRight,
-  TrendingUp,
 } from 'lucide-react';
 
 export const AiFraudDetection: React.FC = () => {
-  const [insight, setInsight] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch('/api/fraud-detection/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ address: 'bc1q8x9l4h9g2e75kdf8wqp39nm7x4f9', network: 'Bitcoin' }),
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data?.evidenceSummary) setInsight(data.evidenceSummary);
-      })
-      .catch((err) => console.error('Fraud detection fetch failed:', err));
-  }, []);
 
   const cards = [
     {
@@ -159,19 +141,6 @@ export const AiFraudDetection: React.FC = () => {
         })}
       </div>
 
-      {insight && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mt-10 p-5 rounded-2xl bg-[#A58B6F]/10 border border-[#A58B6F]/30 text-sm text-neutral-200 font-inter leading-relaxed"
-        >
-          <div className="flex items-center gap-2 text-[#A58B6F] text-xs font-mono uppercase tracking-widest mb-2">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>AI Forensic Insight</span>
-          </div>
-          {insight}
-        </motion.div>
-      )}
     </section>
   );
 };

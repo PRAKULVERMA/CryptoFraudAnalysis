@@ -17,7 +17,7 @@ const defaultDevelopmentSecret = 'development-secret-change-me';
 const cfg = {
   PORT: toNumber(process.env.PORT, 4000),
   NODE_ENV: process.env.NODE_ENV || 'development',
-  DEMO_MODE: toBoolean(process.env.DEMO_MODE, true),
+  DEMO_MODE: toBoolean(process.env.DEMO_MODE, false),
   JWT_SECRET: process.env.JWT_SECRET || defaultDevelopmentSecret,
   MONGODB_URI: process.env.MONGODB_URI || '',
   NEO4J_URI: process.env.NEO4J_URI || '',

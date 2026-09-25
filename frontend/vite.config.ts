@@ -4,7 +4,7 @@ import path from 'path';
 import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
-  const apiTarget = process.env.VITE_API_BASE_URL || 'https://cryptofraudanalysis.onrender.com';
+  const apiTarget = process.env.VITE_API_BASE_URL || 'http://localhost:4000';
 
   return {
     plugins: [react(), tailwindcss()],

@@ -201,7 +201,7 @@ export async function analyzeEvidenceRisk({ address, network, transactions = [],
     });
   }
 
-  const graphAnalysis = {
+  let graphAnalysis = {
     provider: 'memory',
     status: 'ACTIVE',
     reason: 'Neo4j not enabled or unavailable',
