@@ -2,7 +2,7 @@ export function normalizeWalletAddress(address) {
   return String(address || '').trim().toLowerCase();
 }
 
-export function buildGraphFromTrace({ rootAddress, transactions = [], network = 'bitcoin', synthetic = false, mode = 'DEMO', walletHops = new Map(), maxHopsReached = 0, limitsReached = [] }) {
+export function buildGraphFromTrace({ rootAddress, transactions = [], network = 'bitcoin', synthetic = false, mode = 'LIVE', walletHops = new Map(), maxHopsReached = 0, limitsReached = [] }) {
   const nodes = new Map();
   const edges = [];
   const rootKey = normalizeWalletAddress(rootAddress);

@@ -77,7 +77,7 @@ const investigationSchema = new mongoose.Schema(
     mode: {
       type: String,
       required: true,
-      default: 'DEMO',
+      default: 'LIVE',
     },
   },
   {

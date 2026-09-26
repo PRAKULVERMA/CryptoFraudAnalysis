@@ -109,7 +109,7 @@ export class InvestigationJobService {
           user_id: investigation.user_id,
           status: 'COMPLETED',
           synthetic: Boolean(result.synthetic),
-          mode: result.mode || 'DEMO',
+          mode: result.mode || 'LIVE',
         };
 
         const completed = await investigationService.updateInvestigation(investigationId, {
