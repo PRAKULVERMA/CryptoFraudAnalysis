@@ -17,6 +17,7 @@ export function normalizeProviderFailure(error) {
     'INVALID_ADDRESS',
     'PROVIDER_UNAVAILABLE',
     'PROVIDER_TIMEOUT',
+    'PROVIDER_HTTP_ERROR',
     'RATE_LIMITED',
     'BLOCKCHAIN_API_ERROR',
   ]);

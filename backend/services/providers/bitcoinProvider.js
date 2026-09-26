@@ -14,20 +14,35 @@ async function requestJson(url) {
 
   try {
     const response = await fetch(url, { signal: controller.signal });
-    let payload;
 
+    if (!response.ok) {
+      const contentType = response.headers.get('content-type') || 'unknown';
+      const bodyText = await response.text().catch(() => '<unreadable>');
+      console.warn(`[BitcoinProvider] HTTP ${response.status} — URL: ${url.substring(0, 120)}, Content-Type: ${contentType}, body_len: ${bodyText.length}, body_preview: ${bodyText.substring(0, 200)}`);
+      throw createProviderError(
+        'PROVIDER_HTTP_ERROR',
+        `Bitcoin provider returned HTTP ${response.status}.`,
+        response.status === 429 ? 429 : 502,
+      );
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('json')) {
+      const bodyText = await response.text().catch(() => '<unreadable>');
+      console.warn(`[BitcoinProvider] Non-JSON response — URL: ${url.substring(0, 120)}, Content-Type: ${contentType}, body_len: ${bodyText.length}, body_preview: ${bodyText.substring(0, 200)}`);
+      throw createProviderError('PROVIDER_HTTP_ERROR', 'Bitcoin provider returned non-JSON response.', 502);
+    }
+
+    let payload;
     try {
       payload = await response.json();
     } catch (error) {
+      console.warn(`[BitcoinProvider] JSON parse error — URL: ${url.substring(0, 120)}, Content-Type: ${contentType}`);
       throw createProviderError('BLOCKCHAIN_API_ERROR', 'Bitcoin provider returned invalid JSON.', 502, error);
     }
 
     if (isRateLimited(response.status, payload)) {
       throw createProviderError('RATE_LIMITED', 'The Bitcoin provider rate limit was reached.', 429);
-    }
-
-    if (!response.ok) {
-      throw createProviderError('BLOCKCHAIN_API_ERROR', 'The Bitcoin provider request failed.', 502);
     }
 
     return payload;

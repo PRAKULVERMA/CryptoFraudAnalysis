@@ -33,20 +33,35 @@ async function requestJson(url) {
 
   try {
     const response = await fetch(url, { signal: controller.signal });
-    let payload;
 
+    if (!response.ok) {
+      const contentType = response.headers.get('content-type') || 'unknown';
+      const bodyText = await response.text().catch(() => '<unreadable>');
+      console.warn(`[EthereumProvider] HTTP ${response.status} — URL: ${url.toString().substring(0, 120)}, Content-Type: ${contentType}, body_len: ${bodyText.length}, body_preview: ${bodyText.substring(0, 200)}`);
+      throw createProviderError(
+        'PROVIDER_HTTP_ERROR',
+        `Ethereum provider returned HTTP ${response.status}.`,
+        response.status === 429 ? 429 : 502,
+      );
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('json')) {
+      const bodyText = await response.text().catch(() => '<unreadable>');
+      console.warn(`[EthereumProvider] Non-JSON response — URL: ${url.toString().substring(0, 120)}, Content-Type: ${contentType}, body_len: ${bodyText.length}, body_preview: ${bodyText.substring(0, 200)}`);
+      throw createProviderError('PROVIDER_HTTP_ERROR', 'Ethereum provider returned non-JSON response.', 502);
+    }
+
+    let payload;
     try {
       payload = await response.json();
     } catch (error) {
+      console.warn(`[EthereumProvider] JSON parse error — URL: ${url.toString().substring(0, 120)}, Content-Type: ${contentType}`);
       throw createProviderError('BLOCKCHAIN_API_ERROR', 'Ethereum provider returned invalid JSON.', 502, error);
     }
 
     if (isRateLimited(response.status, payload)) {
       throw createProviderError('RATE_LIMITED', 'The Ethereum provider rate limit was reached.', 429);
-    }
-
-    if (!response.ok) {
-      throw createProviderError('BLOCKCHAIN_API_ERROR', 'The Ethereum provider request failed.', 502);
     }
 
     return payload;
