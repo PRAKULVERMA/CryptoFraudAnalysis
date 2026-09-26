@@ -436,42 +436,117 @@ export function computePath(
   return { nodeIds, linkIds };
 }
 
-/** Precomputed fixed layouts (flow = hop columns, radial = hop rings). Force clears pins. */
+const COL_W = 264;
+const ROW_H = 124;
+
+/** Precomputed fixed layouts. Flow = deterministic layered left->right money-flow diagram; Radial = hop rings. Force clears pins. */
 export function applyLayout(
   nodes: DerivedNode[],
+  edges: DerivedEdge[],
   mode: LayoutMode
 ): DerivedNode[] {
   if (mode === 'force') {
     return nodes.map((n) => ({ ...n, fx: null, fy: null }));
   }
 
-  const levels = new Map<number, DerivedNode[]>();
-  nodes.forEach((node) => {
-    const level = node.hop === null ? 99 : node.hop;
-    if (!levels.has(level)) levels.set(level, []);
-    levels.get(level)!.push(node);
+  // Layer group: build ordered hop columns. Nodes with no hop (disconnected)
+  // are placed in a trailing column so they never disrupt the flow.
+  const maxHop = nodes.reduce((max, n) => (n.hop == null ? max : Math.max(max, n.hop)), 0);
+  const levels: { hop: number | null; keys: string[] }[] = [];
+  for (let h = 0; h <= maxHop; h++) {
+    const members = nodes.filter((n) => n.hop === h).map((n) => n.key);
+    if (members.length > 0) levels.push({ hop: h, keys: members });
+  }
+  const nullHop = nodes.filter((n) => n.hop == null).map((n) => n.key);
+  if (nullHop.length > 0) levels.push({ hop: null, keys: nullHop });
+
+  // RADIAL keeps the exploratory ring layout; levels are grouped by hop.
+  if (mode === 'radial') {
+    const lastLevel = Math.max(0, levels.length - 1);
+    return nodes.map((node) => {
+      const level = node.hop === null ? lastLevel + 1 : node.hop;
+      const siblings = levels.find((l) => l.keys.includes(node.key))?.keys ?? [node.key];
+      const indexInLevel = siblings.indexOf(node.key);
+      const countInLevel = siblings.length;
+      if (level === 0) return { ...node, fx: 0, fy: 0 };
+      const radius = level === lastLevel + 1 ? (lastLevel + 1) * 230 : level * 230;
+      const angle =
+        countInLevel === 1
+          ? 0
+          : (2 * Math.PI * indexInLevel) / countInLevel + (level * Math.PI) / 8;
+      return { ...node, fx: Math.cos(angle) * radius, fy: Math.sin(angle) * radius };
+    });
+  }
+
+  // ---- FLOW: deterministic layered left->right forensic money-flow layout ----
+  if (levels.length === 0) {
+    return nodes.map((n) => ({ ...n, fx: 0, fy: 0 }));
+  }
+
+  const levelOf = new Map<string, number>();
+  levels.forEach((lvl, i) => lvl.keys.forEach((k) => levelOf.set(k, i)));
+
+  // Forward parent relationship: source at an earlier layer than target.
+  // Only forward edges (real fund-flow direction) drive sibling ordering;
+  // backward/lateral edges still render with their true arrow direction.
+  const forwardParents = new Map<string, Set<string>>();
+  edges.forEach((e) => {
+    const ls = levelOf.get(e.source);
+    const lt = levelOf.get(e.target);
+    if (ls == null || lt == null || ls >= lt) return;
+    if (!forwardParents.has(e.target)) forwardParents.set(e.target, new Set());
+    forwardParents.get(e.target)!.add(e.source);
   });
-  const sortedLevels = [...levels.keys()].sort((a, b) => a - b);
-  const lastLevel = sortedLevels.length > 0 ? sortedLevels[sortedLevels.length - 1] : 1;
+
+  const barycenter = (
+    key: string,
+    prevIndex: Map<string, number>
+  ): number | null => {
+    const parents = forwardParents.get(key);
+    if (!parents || parents.size === 0) return null;
+    let sum = 0,
+      count = 0;
+    parents.forEach((p) => {
+      const ix = prevIndex.get(p);
+      if (ix != null) {
+        sum += ix;
+        count += 1;
+      }
+    });
+    return count === 0 ? null : sum / count;
+  };
+
+  // Iteratively reduce edge crossings using the barycenter (Sugiyama) heuristic.
+  // Ties break by key so the same investigation always produces the same layout.
+  for (let iter = 0; iter < 3; iter++) {
+    for (let i = 1; i < levels.length; i++) {
+      const prevIndex = new Map<string, number>();
+      levels[i - 1].keys.forEach((k, j) => prevIndex.set(k, j));
+      levels[i].keys.sort((a, b) => {
+        const ba = barycenter(a, prevIndex);
+        const bb = barycenter(b, prevIndex);
+        if (ba == null && bb == null) return a < b ? -1 : a > b ? 1 : 0;
+        if (ba == null) return 1;
+        if (bb == null) return -1;
+        if (ba !== bb) return ba - bb;
+        return a < b ? -1 : a > b ? 1 : 0;
+      });
+    }
+  }
+
+  const positions = new Map<string, { x: number; y: number }>();
+  levels.forEach((level, i) => {
+    const n = level.keys.length;
+    level.keys.forEach((key, j) => {
+      const x = i * COL_W;
+      const y = n === 1 ? 0 : (j - (n - 1) / 2) * ROW_H;
+      positions.set(key, { x, y });
+    });
+  });
 
   return nodes.map((node) => {
-    const level = node.hop === null ? 99 : node.hop;
-    const siblings = levels.get(level) || [];
-    const indexInLevel = siblings.indexOf(node);
-    const countInLevel = siblings.length;
-
-    if (mode === 'flow') {
-      const x = level === 99 ? (lastLevel + 1) * 240 : level * 240;
-      const y = countInLevel === 1 ? 0 : (indexInLevel - (countInLevel - 1) / 2) * 110;
-      return { ...node, fx: x, fy: y };
-    }
-
-    if (level === 0) return { ...node, fx: 0, fy: 0 };
-    const radius = level === 99 ? (lastLevel + 1) * 230 : level * 230;
-    const angle =
-      countInLevel === 1
-        ? 0
-        : (2 * Math.PI * indexInLevel) / countInLevel + (level * Math.PI) / 8;
-    return { ...node, fx: Math.cos(angle) * radius, fy: Math.sin(angle) * radius };
+    const pos = positions.get(node.key);
+    if (!pos) return { ...node, fx: 0, fy: 0 };
+    return { ...node, fx: pos.x, fy: pos.y };
   });
 }

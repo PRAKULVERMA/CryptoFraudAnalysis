@@ -8,12 +8,11 @@ import {
   ZoomOut,
   Maximize2,
   Minimize2,
-  Layers3,
   AlertTriangle,
   ShieldAlert,
   Loader2,
-  Network,
   RotateCcw,
+  ListFilter,
 } from 'lucide-react';
 import type {
   DerivedNode,
@@ -38,11 +37,9 @@ import { NodeIntelligencePanel } from './investigation-graph/NodeIntelligencePan
 import { EdgeIntelligencePanel } from './investigation-graph/EdgeIntelligencePanel';
 import {
   paintNode,
-  paintEdgeLabel,
+  paintEdge,
   paintNodePointerArea,
-  nodeVisualRadius,
-  EDGE_COLOR,
-  PATH_COLOR,
+  edgeDisplayWidth,
 } from './investigation-graph/graphPainting';
 import { assetForNetwork } from './investigation-graph/graphFormat';
 
@@ -67,12 +64,6 @@ const FILTERS: { id: GraphFilter; label: string }[] = [
   { id: 'unknown', label: 'Unknown' },
   { id: 'exchanges', label: 'Exchanges' },
   { id: 'services', label: 'Services' },
-];
-
-const LAYOUTS: { id: LayoutMode; label: string }[] = [
-  { id: 'flow', label: 'Flow' },
-  { id: 'radial', label: 'Radial' },
-  { id: 'force', label: 'Force' },
 ];
 
 const ToolbarButton = ({
@@ -126,7 +117,26 @@ export const TransactionNetworkGraph: React.FC = () => {
   >(null);
   const [hoverKey, setHoverKey] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [dims, setDims] = useState({ width: 800, height: 520 });
+
+  useEffect(() => {
+    if (!filtersOpen) return;
+    const close = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setFiltersOpen(false);
+      }
+    };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFiltersOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', esc);
+    };
+  }, [filtersOpen]);
 
   const graphRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -142,6 +152,48 @@ export const TransactionNetworkGraph: React.FC = () => {
     if (!target) return { nodeIds: new Set<string>(), linkIds: new Set<string>() };
     return computePath(derived.rootKey, filtered.nodes, filtered.edges, target);
   }, [selection, derived, filtered]);
+
+  const maxValue = useMemo(
+    () =>
+      filtered.edges.reduce(
+        (m, e) => (e.value != null && Number.isFinite(e.value) ? Math.max(m, Math.abs(e.value)) : m),
+        0
+      ),
+    [filtered.edges]
+  );
+
+  const maxHop = useMemo(() => {
+    if (!derived.rootKey) return 0;
+    return derived.nodes.reduce((m, n) => (n.hop == null ? m : Math.max(m, n.hop)), 0);
+  }, [derived]);
+
+  const txAnalyzed = useMemo(
+    () =>
+      Number(result?.trace_summary?.transactions_analyzed ?? result?.transactionsAnalyzed) ||
+      filtered.edges.length,
+    [result, filtered.edges]
+  );
+  const walletsDiscovered = useMemo(
+    () =>
+      Number(result?.trace_summary?.wallets_discovered ?? result?.walletsDiscovered) ||
+      derived.nodes.length,
+    [result, derived.nodes]
+  );
+
+  const flowStages = useMemo(() => {
+    const stages: { label: string; hop: number | null }[] = [];
+    if (!derived.rootKey) return stages;
+    if (maxHop === 0) {
+      stages.push({ label: 'START', hop: 0 });
+      return stages;
+    }
+    for (let i = 0; i <= maxHop; i++) {
+      if (i === 0) stages.push({ label: 'START', hop: 0 });
+      else if (i === maxHop) stages.push({ label: 'FINAL DESTINATION', hop: i });
+      else stages.push({ label: `HOP ${i}`, hop: i });
+    }
+    return stages;
+  }, [maxHop, derived.rootKey]);
 
   const pathLinkIds = useMemo(() => {
     if (!selection || selection.kind !== 'edge') {
@@ -169,7 +221,7 @@ export const TransactionNetworkGraph: React.FC = () => {
     Array.from(cache.keys()).forEach((k) => {
       if (!liveKeys.has(k)) cache.delete(k);
     });
-    const positioned = applyLayout(filtered.nodes, layout);
+    const positioned = applyLayout(filtered.nodes, filtered.edges, layout);
     const nodes = positioned.map((n) => {
       let obj = cache.get(n.key);
       if (!obj) {
@@ -264,13 +316,6 @@ export const TransactionNetworkGraph: React.FC = () => {
     g.zoom(current * factor, 350);
   };
 
-  const centerRoot = useCallback(() => {
-    const root = nodeCacheRef.current.get(derived.rootKey ?? '');
-    if (!root || graphRef.current == null) return;
-    graphRef.current.centerAt(root.x ?? 0, root.y ?? 0, 700);
-    graphRef.current.zoom(1.6, 700);
-  }, [derived.rootKey]);
-
   const resetView = useCallback(() => {
     setFilter('all');
     setLayout('flow');
@@ -319,50 +364,15 @@ export const TransactionNetworkGraph: React.FC = () => {
     (obj: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
       const s = typeof obj.source === 'object' ? obj.source.key : obj.source;
       const t = typeof obj.target === 'object' ? obj.target.key : obj.target;
-      const selected = selection?.kind === 'edge' && selection.edge.id === obj.id;
-      const onPath = selection?.kind === 'node' && path.linkIds.has(`${s}->${t}`);
-      const dimmed = dimForLink(obj);
-      const sx = obj.source?.x ?? 0;
-      const sy = obj.source?.y ?? 0;
-      const tx = obj.target?.x ?? 0;
-      const ty = obj.target?.y ?? 0;
-
-      ctx.save();
-      ctx.globalAlpha = dimmed ? 0.05 : 1;
-      ctx.beginPath();
-      ctx.lineWidth = selected ? 2.4 : onPath ? 1.6 : 1;
-      ctx.strokeStyle = selected
-        ? '#E7D7BF'
-        : onPath
-          ? PATH_COLOR
-          : EDGE_COLOR;
-      ctx.stroke();
-
-      ctx.beginPath();
-      const angle = Math.atan2(ty - sy, tx - sx);
-      const targetRadius = typeof obj.target === 'object' && obj.target !== null ? nodeVisualRadius(obj.target) : 6;
-      const headX = tx - Math.cos(angle) * (targetRadius + 2);
-      const headY = ty - Math.sin(angle) * (targetRadius + 2);
-      ctx.translate(headX, headY);
-      ctx.rotate(angle);
-      ctx.moveTo(0, 0);
-      ctx.lineTo(-4.5, 2.4);
-      ctx.lineTo(-4.5, -2.4);
-      ctx.closePath();
-      ctx.fillStyle = selected ? '#E7D7BF' : onPath ? PATH_COLOR : 'rgba(148, 163, 184, 0.55)';
-      ctx.fill();
-      ctx.restore();
-
-      if (!dimmed) {
-        paintEdgeLabel(ctx, obj, globalScale, {
-          selected: Boolean(selected),
-          onPath: Boolean(onPath),
-          dimmed: false,
-          asset,
-        });
-      }
+      paintEdge(ctx, obj, globalScale, {
+        selected: selection?.kind === 'edge' && selection.edge.id === obj.id,
+        onPath: selection?.kind === 'node' && path.linkIds.has(`${s}->${t}`),
+        dimmed: dimForLink(obj),
+        asset,
+        maxValue,
+      });
     },
-    [selection, path, dimForLink, asset]
+    [selection, path, dimForLink, asset, maxValue]
   );
   const hasTransactions = result && (result.trace_summary?.transactions_analyzed ?? 0) > 0;
   const showNoTx =
@@ -435,8 +445,6 @@ export const TransactionNetworkGraph: React.FC = () => {
             (isFullscreen ? 'p-4' : 'p-4 sm:p-6')
           }
         >
-          <div className="absolute inset-0 cyber-grid-bg opacity-20 pointer-events-none" />
-
           {result && !isRunning && (
             <div className="relative z-20 mb-4">
               <InvestigationHeader result={result} status={status} />
@@ -444,46 +452,87 @@ export const TransactionNetworkGraph: React.FC = () => {
           )}
 
           <div className="relative z-20 flex flex-wrap items-center gap-1.5 pb-3 mb-2 border-b border-white/5">
-            {FILTERS.map((f) => (
+            <div className="relative">
               <button
-                key={f.id}
                 type="button"
-                onClick={() => setFilter(f.id)}
+                onClick={() => setFiltersOpen(!filtersOpen)}
                 className={
                   'px-2.5 py-1 rounded-md border text-[9px] font-mono uppercase tracking-wider transition-colors cursor-pointer ' +
-                  (filter === f.id
+                  (filter === 'all'
                     ? 'border-[#A58B6F]/50 bg-[#A58B6F]/15 text-[#C4A482]'
                     : 'border-white/10 bg-white/[0.03] text-neutral-400 hover:text-white hover:border-white/25')
                 }
               >
-                {f.label}
+                <ListFilter className="w-3 h-3 inline mr-1 -mt-0.5" />
+                Filters {filtersOpen ? '▴' : '▾'}
               </button>
-            ))}
-            <span className="mx-1 w-px h-4 bg-white/10 hidden sm:block" />
-            {LAYOUTS.map((l) => (
-              <button
-                key={l.id}
-                type="button"
-                onClick={() => setLayout(l.id)}
-                className={
-                  'px-2.5 py-1 rounded-md border text-[9px] font-mono uppercase tracking-wider transition-colors cursor-pointer ' +
-                  (layout === l.id
-                    ? 'border-[#A58B6F]/50 bg-[#A58B6F]/15 text-[#C4A482]'
-                    : 'border-white/10 bg-white/[0.03] text-neutral-400 hover:text-white hover:border-white/25')
-                }
-              >
-                <Layers3 className="w-3 h-3 inline mr-1 -mt-0.5" />
-                {l.label}
-              </button>
-            ))}
+              {filtersOpen && (
+                <div className="absolute z-30 mt-1.5 left-0 flex flex-col gap-1 p-1.5 min-w-44 glass-card glass-border bg-[#0a0a0a]/95">
+                  {FILTERS.map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => {
+                        setFilter(f.id);
+                        setFiltersOpen(false);
+                      }}
+                      className={
+                        'px-2.5 py-1 rounded-md border text-[9px] font-mono uppercase tracking-wider transition-colors cursor-pointer ' +
+                        (filter === f.id
+                          ? 'border-[#A58B6F]/50 bg-[#A58B6F]/15 text-[#C4A482]'
+                          : 'border-white/10 bg-white/[0.03] text-neutral-400 hover:text-white hover:border-white/25')
+                      }
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <span className="flex-1" />
             <ToolbarButton icon={<ZoomIn className="w-3.5 h-3.5" />} label="Zoom in" onClick={() => safeZoom(1.35)} />
             <ToolbarButton icon={<ZoomOut className="w-3.5 h-3.5" />} label="Zoom out" onClick={() => safeZoom(1 / 1.35)} />
             <ToolbarButton icon={<Crosshair className="w-3.5 h-3.5" />} label="Fit graph" onClick={() => graphRef.current?.zoomToFit(600, 48)} />
-            <ToolbarButton icon={<Network className="w-3.5 h-3.5" />} label="Center root wallet" onClick={centerRoot} disabled={!derived.rootKey} />
             <ToolbarButton icon={<RotateCcw className="w-3.5 h-3.5" />} label="Reset view" onClick={resetView} />
             <ToolbarButton icon={isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />} label="Fullscreen" onClick={toggleFullscreen} />
           </div>
+
+          {!isRunning && !error && graphData.nodes.length > 0 && (
+            <div className="relative z-20 mb-3">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-[10px] font-mono tracking-[0.15em] text-neutral-500">
+                <span className="text-[#A58B6F] font-semibold tracking-widest text-[11px] uppercase">
+                  Money Flow
+                </span>
+                <span className="flex items-center gap-1.5">
+                  {flowStages.map((s, i) => (
+                    <React.Fragment key={s.label + i}>
+                      {i > 0 && <span className="text-neutral-600/60">→</span>}
+                      <span
+                        className={
+                          s.hop === 0
+                            ? 'text-[#A58B6F] font-medium'
+                            : s.hop === maxHop
+                              ? 'text-cyan-300/90'
+                              : 'text-neutral-400'
+                        }
+                      >
+                        {s.label}
+                      </span>
+                    </React.Fragment>
+                  ))}
+                </span>
+                <span className="flex-1 h-px bg-white/5" />
+                <span className="flex items-center gap-3 text-neutral-600">
+                  <span>Transactions {txAnalyzed}</span>
+                  <span>·</span>
+                  <span>Wallets {walletsDiscovered}</span>
+                  <span>·</span>
+                  <span>Max Hop {maxHop}</span>
+                </span>
+              </div>
+            </div>
+          )}
+
           <div className="relative z-10" style={{ height: dims.height }}>
             {isRunning && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
@@ -556,10 +605,10 @@ export const TransactionNetworkGraph: React.FC = () => {
                 backgroundColor="rgba(0,0,0,0)"
                 nodeRelSize={3.2}
                 linkColor={() => 'rgba(0,0,0,0)'}
-                linkWidth={(l: any) => (dimForLink(l) ? 0.4 : 1.4)}
-                linkCurvature={0.08}
-                linkHoverPrecision={12}
-                cooldownTicks={reduceMotion ? 0 : 120}
+                linkWidth={(l: any) => (dimForLink(l) ? 0.6 : edgeDisplayWidth(l, maxValue))}
+                linkCurvature={0.06}
+                linkHoverPrecision={14}
+                cooldownTicks={reduceMotion ? 0 : layout === 'force' ? 120 : 30}
                 warmupTicks={layout === 'force' ? 60 : 0}
                 enableNodeDrag={layout === 'force'}
                 minZoom={0.25}
@@ -573,17 +622,6 @@ export const TransactionNetworkGraph: React.FC = () => {
                 onLinkClick={handleLinkClick}
                 onBackgroundClick={() => setSelection(null)}
                 onNodeHover={(n: any) => setHoverKey(n ? n.key : null)}
-                linkDirectionalParticles={(l: any) => {
-                  if (reduceMotion) return 0;
-                  const s = typeof l.source === 'object' ? l.source.key : l.source;
-                  const t = typeof l.target === 'object' ? l.target.key : l.target;
-                  const isSelected = selection?.kind === 'edge' && selection.edge.id === l.id;
-                  const isOnPath = selection?.kind === 'node' && path.linkIds.has(`${s}->${t}`);
-                  return isSelected || isOnPath ? 3 : 0;
-                }}
-                linkDirectionalParticleWidth={2}
-                linkDirectionalParticleSpeed={0.015}
-                linkDirectionalParticleColor={() => PATH_COLOR}
                 onEngineStop={() => {
                   if (!reduceMotion) graphRef.current?.zoomToFit(700, 48);
                 }}
@@ -592,11 +630,12 @@ export const TransactionNetworkGraph: React.FC = () => {
           </div>
 
           <div className="relative z-20 flex flex-wrap items-center gap-x-4 gap-y-1.5 pt-3 mt-2 border-t border-white/5 text-[9px] font-mono text-neutral-500">
-            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: '#A58B6F' }} /> Root Wallet</span>
-            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: '#60A5FA' }} /> Wallet</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: '#A58B6F' }} /> Start Wallet</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: '#60A5FA' }} /> Intermediate Hop</span>
             <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full ring-1 ring-orange-500/70" style={{ background: '#60A5FA' }} /> High Risk</span>
-            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: '#34D399' }} /> Verified Entity</span>
-            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: '#64748B' }} /> Unknown</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: '#34D399' }} /> Verified</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full ring-1 ring-cyan-400/50" style={{ background: '#22D3EE' }} /> Final Destination</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: '#64748B' }} /> Unknown Destination</span>
             <span className="flex items-center gap-1.5 text-[#C4A482]">Fund Movement <span aria-hidden>→</span></span>
           </div>
         </div>
