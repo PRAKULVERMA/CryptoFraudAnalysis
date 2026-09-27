@@ -7,14 +7,24 @@ const RETRYABLE_CODES = new Set([
   'ECONNRESET',
   'EAI_AGAIN',
   'RATE_LIMITED',
+  'PROVIDER_TIMEOUT',
+  'PROVIDER_NETWORK_ERROR',
+  'PROVIDER_HTTP_ERROR',
   'PROVIDER_UNAVAILABLE',
   'TRANSIENT_FAILURE',
 ]);
 
 function isRetryable(error) {
   if (!error || typeof error !== 'object') return false;
+  if (error.retryable === false) return false;
+  if (error.retryable === true) return true;
+
   const code = error.code || error.name || '';
   if (RETRYABLE_CODES.has(code)) return true;
+
+  const status = Number(error.status);
+  if ([408, 429, 500, 502, 503, 504].includes(status)) return true;
+
   const message = String(error.message || '').toLowerCase();
   if (message.includes('timeout') || message.includes('429') || message.includes('5xx') || message.includes('service unavailable')) {
     return true;
@@ -23,17 +33,26 @@ function isRetryable(error) {
 }
 
 function safeError(error) {
-  if (!error) return 'Investigation processing failed.';
+  if (!error) return { code: 'INVESTIGATION_FAILED', message: 'Investigation processing failed.' };
   const code = error.code || 'INVESTIGATION_FAILED';
   const message = error.publicMessage || error.message || 'Investigation processing failed.';
-  return { code, message };
+  return {
+    code,
+    message,
+    provider: error.provider ?? null,
+    network: error.network ?? null,
+    status: error.status ?? null,
+    attempts: error.attempts ?? null,
+    retryable: isRetryable(error),
+  };
 }
 
 function getBackoffMs(retryCount) {
   const base = 1000;
   const max = 30000;
   const delay = base * Math.pow(2, retryCount);
-  return Math.min(delay, max);
+  const jittered = Math.round(delay * (0.5 + Math.random() * 0.5));
+  return Math.min(jittered, max);
 }
 
 export class InvestigationJobService {
@@ -108,6 +127,7 @@ export class InvestigationJobService {
           investigation_id: investigation.investigation_id,
           user_id: investigation.user_id,
           status: 'COMPLETED',
+          attempts: attempt + 1,
           synthetic: Boolean(result.synthetic),
           mode: result.mode || 'LIVE',
         };

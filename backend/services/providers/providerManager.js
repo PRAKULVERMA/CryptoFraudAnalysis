@@ -12,16 +12,16 @@ class ProviderManager {
     throw createProviderError('INVALID_ADDRESS', 'The selected blockchain network is not supported.', 422);
   }
 
-  getWalletTransactions(address, network) {
-    return this.getProvider(network).getWalletTransactions(address, network);
+  getWalletTransactions(address, network, context) {
+    return this.getProvider(network).getWalletTransactions(address, network, context);
   }
 
-  getTransaction(transactionId, network) {
-    return this.getProvider(network).getTransaction(transactionId, network);
+  getTransaction(transactionId, network, context) {
+    return this.getProvider(network).getTransaction(transactionId, network, context);
   }
 
-  getWalletInfo(address, network) {
-    return this.getProvider(network).getWalletInfo(address, network);
+  getWalletInfo(address, network, context) {
+    return this.getProvider(network).getWalletInfo(address, network, context);
   }
 }
 

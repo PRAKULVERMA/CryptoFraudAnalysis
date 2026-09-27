@@ -15,7 +15,7 @@ interface StatItemProps {
   id: string;
   step: string;
   title: string;
-  targetValue: number;
+  value: number | null;
   suffix: string;
   decimals?: number;
   icon: React.ElementType;
@@ -26,7 +26,7 @@ interface StatItemProps {
 const AnimatedCounterCard: React.FC<StatItemProps> = ({
   step,
   title,
-  targetValue,
+  value,
   suffix,
   decimals = 0,
   icon: Icon,
@@ -38,7 +38,7 @@ const AnimatedCounterCard: React.FC<StatItemProps> = ({
   const [displayVal, setDisplayVal] = useState(0);
 
   useEffect(() => {
-    if (!isInView) return;
+    if (!isInView || value === null) return;
 
     let start = 0;
     const duration = 1800; // ms
@@ -49,18 +49,18 @@ const AnimatedCounterCard: React.FC<StatItemProps> = ({
       const progress = Math.min(elapsed / duration, 1);
       // easeOutExpo
       const ease = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
-      const current = start + (targetValue - start) * ease;
+      const current = start + (value - start) * ease;
       setDisplayVal(current);
 
       if (progress < 1) {
         requestAnimationFrame(update);
       } else {
-        setDisplayVal(targetValue);
+        setDisplayVal(value);
       }
     };
 
     requestAnimationFrame(update);
-  }, [isInView, targetValue]);
+  }, [isInView, value]);
 
   return (
     <motion.div
@@ -89,94 +89,125 @@ const AnimatedCounterCard: React.FC<StatItemProps> = ({
         {title}
       </div>
 
-      {/* Animated Big Number */}
+      {/* Value — real backend metric, or an honest empty state */}
       <div className="relative z-10 font-playfair text-3xl sm:text-4xl lg:text-5xl font-light text-white mb-2 tracking-tight">
-        {decimals > 0
-          ? displayVal.toFixed(decimals)
-          : Math.floor(displayVal).toLocaleString()}
-        <span className="text-[#A58B6F] font-normal text-2xl sm:text-3xl ml-0.5">
-          {suffix}
-        </span>
+        {value === null ? (
+          <span className="text-neutral-600">—</span>
+        ) : (
+          <>
+            {decimals > 0
+              ? displayVal.toFixed(decimals)
+              : Math.floor(displayVal).toLocaleString()}
+            <span className="text-[#A58B6F] font-normal text-2xl sm:text-3xl ml-0.5">
+              {suffix}
+            </span>
+          </>
+        )}
       </div>
 
       {/* Description & Change Tag */}
       <div className="relative z-10 flex items-center justify-between text-xs font-inter pt-3 border-t border-white/5">
         <span className="text-neutral-400 opacity-70 text-[11px] leading-tight">
-          {description}
+          {value === null ? 'No data recorded yet' : description}
         </span>
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-mono shrink-0 ml-2">
-          <TrendingUp className="w-3 h-3" />
-          {changeRate}
-        </span>
+        {value !== null && (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-mono shrink-0 ml-2">
+            <TrendingUp className="w-3 h-3" />
+            {changeRate}
+          </span>
+        )}
       </div>
     </motion.div>
   );
 };
 
 export const LiveAnalyticsStats: React.FC = () => {
-  const [stats, setStats] = useState([
+  // Every number below comes from /api/analytics/overview. Nothing is a placeholder.
+  const [stats, setStats] = useState<StatItemProps[]>([
     {
       id: 'stat-wallets',
       step: '01',
       title: 'WALLETS ANALYZED',
-      targetValue: 12847,
+      value: null,
       suffix: '+',
       decimals: 0,
       icon: Wallet,
-      description: 'Active suspect addresses ingested & clustered',
-      changeRate: '+18.4% MoM',
+      description: 'Addresses ingested & clustered by live investigations',
+      changeRate: '',
     },
     {
       id: 'stat-paths',
       step: '02',
       title: 'TRANSACTION PATHS',
-      targetValue: 85000,
+      value: null,
       suffix: '+',
       decimals: 0,
       icon: GitFork,
       description: 'Cross-block UTXO & token transfer hops mapped',
-      changeRate: '+34.2% peak',
+      changeRate: '',
     },
     {
       id: 'stat-fraud',
       step: '03',
       title: 'FRAUD NETWORKS DETECTED',
-      targetValue: 1240,
+      value: null,
       suffix: '+',
       decimals: 0,
       icon: ShieldAlert,
       description: 'Syndicates, peeling chains & mixer rings unmasked',
-      changeRate: '99.4% precision',
+      changeRate: '',
     },
     {
       id: 'stat-exchanges',
       step: '04',
       title: 'EXCHANGE DESTINATIONS IDENTIFIED',
-      targetValue: 94.7,
+      value: null,
       suffix: '%',
       decimals: 1,
       icon: Building2,
       description: 'Successful off-ramp attribution rate for legal seizure',
-      changeRate: '+4.8% delta',
+      changeRate: '',
     },
   ]);
 
   useEffect(() => {
-    fetch('/api/analytics/overview')
-      .then((res) => res.json())
+    const controller = new AbortController();
+
+    fetch('/api/analytics/overview', { signal: controller.signal })
+      .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (!data) return;
+        if (!data || controller.signal.aborted) return;
+
+        const toNumber = (input: any): number | null => {
+          const num = Number(input);
+          return Number.isFinite(num) ? num : null;
+        };
+
         setStats((prev) =>
           prev.map((item) => {
-            if (item.id === 'stat-wallets') return { ...item, targetValue: data.addressesTracked || item.targetValue, changeRate: `+${data.alertsToday || 0} alerts today` };
-            if (item.id === 'stat-paths') return { ...item, targetValue: data.totalCases || item.targetValue };
-            if (item.id === 'stat-fraud') return { ...item, targetValue: data.activeInvestigations || item.targetValue };
-            if (item.id === 'stat-exchanges') return { ...item, targetValue: data.successRate ? parseFloat(data.successRate) : item.targetValue };
+            if (item.id === 'stat-wallets') {
+              return { ...item, value: toNumber(data.addressesTracked), changeRate: `${toNumber(data.alertsToday) ?? 0} alerts today` };
+            }
+            if (item.id === 'stat-paths') {
+              return { ...item, value: toNumber(data.totalCases) };
+            }
+            if (item.id === 'stat-fraud') {
+              return { ...item, value: toNumber(data.completedInvestigations) };
+            }
+            if (item.id === 'stat-exchanges') {
+              const parsed = Number.parseFloat(String(data.successRate ?? ''));
+              return { ...item, value: Number.isFinite(parsed) ? parsed : null };
+            }
             return item;
           })
         );
       })
-      .catch((err) => console.error('Analytics fetch failed:', err));
+      .catch((err) => {
+        if (controller.signal.aborted) return;
+        console.error('Analytics fetch failed:', err);
+      });
+
+    return () => controller.abort();
   }, []);
 
   return (

@@ -1,13 +1,13 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { ArrowRight, ShieldAlert, Sparkles, ChevronDown, Terminal, Search, ShieldCheck } from 'lucide-react';
+import { ArrowRight, ShieldAlert, Search } from 'lucide-react';
 
 interface HeroContentProps {
   onOpenDemo: () => void;
   onReadMore: () => void;
-  opacity: any; // MotionValue
-  yTransform: any; // MotionValue
-  scaleTransform: any; // MotionValue
+  opacity: any;
+  yTransform: any;
+  scaleTransform: any;
 }
 
 export const HeroContent: React.FC<HeroContentProps> = ({
@@ -25,13 +25,6 @@ export const HeroContent: React.FC<HeroContentProps> = ({
     }
   };
 
-  const scrollToGraph = () => {
-    const el = document.getElementById('graph-network');
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth' });
-    }
-  };
-
   return (
     <motion.div
       id="hero-content-wrapper"
@@ -42,28 +35,24 @@ export const HeroContent: React.FC<HeroContentProps> = ({
       }}
       className="relative z-10 flex flex-col items-center justify-center text-center px-6 w-full pt-28 pb-16 sm:pt-36 sm:pb-20 select-none pointer-events-auto"
     >
-      {/* 1. Feature Pill / Announcement Badge */}
       <motion.div
         initial={{ opacity: 0, y: -16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
         id="hero-announcement-pill"
-        className="inline-flex items-center gap-2.5 p-1 pl-1 pr-4 rounded-full glass-border hover:border-[#A58B6F]/50 transition-all duration-300 cursor-pointer mb-8 group bg-[#080808]/80 shadow-2xl"
+        className="inline-flex items-center gap-2.5 p-1 pl-1 pr-4 rounded-full border border-[#292929] bg-[#111111] hover:border-[#A58B6F]/50 transition-all duration-300 cursor-pointer mb-8 group"
         onClick={scrollToSearch}
       >
-        {/* Bronze Tag */}
         <span className="px-3 py-1 text-[9px] font-inter font-semibold uppercase tracking-[0.2em] rounded-full bg-[#A58B6F] text-black shadow-sm flex items-center gap-1.5">
           <ShieldAlert className="w-3 h-3 text-black" />
-          <span>CYBERCRIME FORENSICS</span>
+          <span>BLOCKCHAIN FORENSICS</span>
         </span>
-        {/* Update version text with animated arrow */}
-        <span className="text-[10px] sm:text-[11px] text-neutral-300 font-inter uppercase tracking-[0.25em] opacity-70 flex items-center gap-1.5 group-hover:opacity-100 transition-opacity">
-          <span>Threat Intelligence Suite</span>
+        <span className="text-[10px] sm:text-[11px] text-[#B5B0A8] font-inter uppercase tracking-[0.25em] opacity-70 flex items-center gap-1.5 group-hover:opacity-100 transition-opacity">
+          <span>Investigation Platform</span>
           <ArrowRight className="w-3 h-3 text-[#A58B6F] group-hover:translate-x-0.5 transition-transform" />
         </span>
       </motion.div>
 
-      {/* 2. Hero Heading with Playfair Display & Inter: EXACT TAGLINE */}
       <motion.h1
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
@@ -73,23 +62,22 @@ export const HeroContent: React.FC<HeroContentProps> = ({
       >
         Tracing Illicit Funds.
         <br />
-        <span className="relative inline-block font-playfair font-light italic text-[#f0f0f0] drop-shadow-[0_4px_30px_rgba(165,139,111,0.3)]">
+        <span className="relative inline-block font-playfair font-light italic text-[#F5F1EA]">
           Identifying Exchange Destinations.
         </span>
       </motion.h1>
 
-      {/* 3. Hero Subtitle with Inter font pairing */}
       <motion.p
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.8, delay: 0.3, ease: [0.16, 1, 0.3, 1] }}
         id="hero-subtitle"
-        className="font-inter text-sm sm:text-base font-light text-neutral-300 opacity-70 leading-relaxed tracking-wide max-w-2xl mb-10 text-balance"
+        className="font-inter text-sm sm:text-base font-light text-[#B5B0A8] opacity-80 leading-relaxed tracking-wide max-w-2xl mb-10 text-balance"
       >
-        Advanced blockchain forensic intelligence platform engineered for law enforcement agencies, cybercrime investigators, and financial intelligence units to track multi-hop money trails, decode peeling chains, and locate exchange off-ramps.
+        Blockchain forensic intelligence platform for tracing multi-hop money trails,
+        detecting wallet clusters, and identifying exchange off-ramps from real on-chain data.
       </motion.p>
 
-      {/* 4. Action Buttons */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -97,57 +85,36 @@ export const HeroContent: React.FC<HeroContentProps> = ({
         id="hero-cta-buttons"
         className="flex flex-wrap items-center justify-center gap-4"
       >
-        {/* Start Investigation button */}
         <button
           id="hero-start-investigation-btn"
           onClick={scrollToSearch}
-          className="px-8 py-3.5 rounded-full bg-[#A58B6F] text-black font-inter text-[10px] uppercase tracking-widest font-semibold hover:bg-[#C4A482] bronze-glow hover:scale-105 active:scale-95 transition-all duration-300 flex items-center gap-2 cursor-pointer shadow-lg shadow-[#A58B6F]/25"
+          className="px-8 py-3.5 rounded-full bg-[#A58B6F] text-black font-inter text-[10px] uppercase tracking-widest font-semibold hover:bg-[#C4A482] transition-all duration-300 flex items-center gap-2 cursor-pointer shadow-lg shadow-[#A58B6F]/20"
         >
           <Search className="w-3.5 h-3.5 text-black" />
           <span>Start Investigation</span>
         </button>
 
-        {/* View Money Trail button */}
         <button
           id="hero-visualize-graph-btn"
-          onClick={scrollToGraph}
-          className="group px-7 py-3.5 rounded-full glass-border hover:bg-white hover:text-black text-neutral-200 font-inter text-[10px] uppercase tracking-widest transition-all duration-300 flex items-center gap-2 active:scale-95 cursor-pointer shadow-lg shadow-black/60"
+          onClick={() => {
+            const el = document.getElementById('graph-network');
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+          }}
+          className="group px-7 py-3.5 rounded-full border border-[#292929] hover:bg-white hover:text-black text-[#B5B0A8] font-inter text-[10px] uppercase tracking-widest transition-all duration-300 flex items-center gap-2 cursor-pointer"
         >
-          <span>Visualize Money Trail</span>
-          <ArrowRight className="w-3.5 h-3.5 opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+          <span>View Money Trail</span>
+          <ArrowRight className="w-3.5 h-3.5 opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-transform" />
         </button>
       </motion.div>
 
-      {/* 5. Key Forensic Signals Pill */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.8, delay: 0.6 }}
-        className="mt-12 flex flex-wrap items-center justify-center gap-4 sm:gap-8 text-[10px] font-mono text-neutral-400 opacity-60"
-      >
-        <div className="flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-          <span>OFAC Sanction Screener: Active</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-[#A58B6F]" />
-          <span>Graph Traversal: 85,000+ Paths</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
-          <span>VASP Attribution Engine: 94.7%</span>
-        </div>
-      </motion.div>
-
-      {/* 6. Scroll Down Hint */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 1, delay: 0.8 }}
         className="mt-12 flex flex-col items-center gap-3 cursor-pointer group"
         onClick={scrollToSearch}
       >
-        <div className="w-[1px] h-12 bg-gradient-to-b from-white/40 to-transparent group-hover:from-[#A58B6F] transition-all" />
+        <div className="w-[1px] h-12 bg-gradient-to-b from-[#B5B0A8]/40 to-transparent group-hover:from-[#A58B6F] transition-all" />
         <span className="text-[9px] font-inter uppercase tracking-[0.4em] opacity-40 group-hover:opacity-80 transition-opacity">
           Launch Investigation Suite
         </span>
@@ -155,4 +122,3 @@ export const HeroContent: React.FC<HeroContentProps> = ({
     </motion.div>
   );
 };
-

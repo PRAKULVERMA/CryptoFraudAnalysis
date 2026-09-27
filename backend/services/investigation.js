@@ -10,7 +10,6 @@ import { buildInvestigationIntelligence } from './intelligence/intelligenceServi
 export async function analyzeWallet(address, network, investigationId) {
   const normalizedNetwork = String(network || '').trim().toLowerCase();
   const provider = createBlockchainProvider();
-  const txData = await provider.getWalletTransactions(address, normalizedNetwork);
   const traceResult = await traceWallet(address, normalizedNetwork, provider, investigationId);
   const risk = await analyzeEvidenceRisk({
     address,
@@ -19,7 +18,7 @@ export async function analyzeWallet(address, network, investigationId) {
     trace_summary: traceResult.trace_summary || {},
     investigationId: investigationId || `${address}-${normalizedNetwork}`,
   });
-  const destination = await attributeDestination(traceResult, { synthetic: Boolean(txData.synthetic) });
+  const destination = await attributeDestination(traceResult, { synthetic: Boolean(traceResult.synthetic) });
 
   let attribution;
   try {
@@ -77,6 +76,7 @@ export async function analyzeWallet(address, network, investigationId) {
   }
 
   const isEth = normalizedNetwork === 'ethereum';
+  const traceDiagnostics = traceResult.tracing_diagnostics || {};
 
   return {
     address,
@@ -93,7 +93,7 @@ export async function analyzeWallet(address, network, investigationId) {
     confidence: `${risk.confidence}%`,
     peelingChains: risk.patterns.length ? `Detected ${risk.patterns.length} graph-derived patterns` : 'No peeling-chain pattern identified',
     ofacMatch: compliance_screening.summary.matches > 0,
-    synthetic: Boolean(txData.synthetic),
+    synthetic: Boolean(traceResult.synthetic),
     mode: config.DEMO_MODE ? 'DEMO' : 'LIVE',
     destination,
     attribution,
@@ -101,6 +101,21 @@ export async function analyzeWallet(address, network, investigationId) {
     nodes: Array.isArray(traceResult.nodes) ? traceResult.nodes : [],
     edges: Array.isArray(traceResult.edges) ? traceResult.edges : [],
     trace_summary: traceResult.trace_summary,
+    provider_diagnostics: {
+      partial: Boolean(traceDiagnostics.partial),
+      provider_requests: traceDiagnostics.provider_requests ?? 0,
+      provider_retries: traceDiagnostics.provider_retries ?? 0,
+      provider_timeouts: traceDiagnostics.provider_timeouts ?? 0,
+      provider_timeout: Boolean(traceDiagnostics.provider_timeout),
+      provider_failure_count: traceDiagnostics.provider_failure_count ?? 0,
+      provider_failures: traceDiagnostics.provider_failures || [],
+      failed_wallet: traceDiagnostics.failed_wallet ?? null,
+      transactions_fetched: traceDiagnostics.transactions_fetched ?? 0,
+      transactions_accepted: traceDiagnostics.transactions_accepted ?? 0,
+      wallets_discovered: traceDiagnostics.wallets_discovered ?? 0,
+      limits_reached: traceDiagnostics.limits_reached || [],
+      configured_limits: traceDiagnostics.configured_limits || {},
+    },
     risk_factors: risk.riskFactors,
     evidence: risk.evidence,
     graph_analysis: risk.graph_analysis,

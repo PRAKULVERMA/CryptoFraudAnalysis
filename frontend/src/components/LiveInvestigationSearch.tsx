@@ -1,57 +1,164 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  Search,
   ArrowRight,
-  ShieldAlert,
   AlertTriangle,
-  CheckCircle2,
-  Cpu,
-  GitFork,
-  Building2,
-  ExternalLink,
-  FileText,
   RefreshCw,
-  Sparkles,
+  RotateCcw,
+  GitFork,
+  FileText,
+  CheckCircle2,
+  Clock,
 } from 'lucide-react';
 import { InvestigationReportPreview } from './InvestigationReportPreview';
-import { publishInvestigation } from './investigation-graph/investigationGraphStore';
+import {
+  beginInvestigation,
+  clearInvestigation,
+  publishInvestigation,
+} from './investigation-graph/investigationGraphStore';
+import { useInvestigationRunner } from '../hooks/useInvestigationRunner';
+import { fetchBackendMode } from '../services/investigationApi';
+
+type NetworkOption = 'bitcoin' | 'ethereum';
 
 interface LiveInvestigationSearchProps {
   onSelectWalletForGraph?: (wallet: { address: string; network: string; risk: number }) => void;
 }
 
+/** Strict address validation — no demo/default/example addresses are ever accepted. */
+const isValidBitcoinAddress = (value: string): boolean =>
+  /^(bc1|tb1|bcrt1)[ac-hj-np-z02-9]{11,71}$/i.test(value) || /^[13mn][1-9A-HJ-NP-Za-km-z]{25,34}$/.test(value);
+
+const isValidEthereumAddress = (value: string): boolean => /^0x[a-fA-F0-9]{40}$/.test(value);
+
+const validateAddress = (address: string, network: NetworkOption): string | null => {
+  const trimmed = address.trim();
+  if (!trimmed) return 'Please enter a wallet address to begin investigation.';
+  if (network === 'bitcoin') {
+    if (!isValidBitcoinAddress(trimmed)) {
+      return 'Invalid Bitcoin address format (Must begin with 1, 3, bc1, tb1 or bcrt1).';
+    }
+    return null;
+  }
+  if (!isValidEthereumAddress(trimmed)) {
+    return 'Invalid Ethereum address format (Must be 0x followed by 40 hex characters).';
+  }
+  return null;
+};
+
+const formatElapsed = (ms: number): string => {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+};
+
+/** Human labels for the backend's own current_step vocabulary. */
+const STAGE_LABELS: Record<string, string> = {
+  VALIDATING_WALLET: 'Validating wallet address',
+  FETCHING_WALLET_TRANSACTIONS: 'Fetching on-chain transactions',
+  FETCHING_TRANSACTIONS: 'Fetching on-chain transactions',
+  NORMALIZING_TRANSACTIONS: 'Normalizing transactions',
+  BUILDING_TRACE: 'Tracing multi-hop fund flow',
+  'INVESTIGATION COMPLETED': 'Investigation complete',
+  COMPLETED: 'Investigation complete',
+};
+
+const STAGE_SEQUENCE = [
+  'Validating wallet address',
+  'Fetching on-chain transactions',
+  'Tracing multi-hop fund flow',
+  'Analysis and risk scoring',
+  'Investigation complete',
+];
+
+const stageIndexOf = (stage: string | null): number => {
+  if (!stage) return 0;
+  const key = stage.trim().toUpperCase();
+  if (key === 'COMPLETED' || key === 'INVESTIGATION COMPLETED') return STAGE_SEQUENCE.length - 1;
+  const label = STAGE_LABELS[key];
+  if (!label) return 0;
+  const index = STAGE_SEQUENCE.indexOf(label);
+  return index >= 0 ? index : 0;
+};
+
 export const LiveInvestigationSearch: React.FC<LiveInvestigationSearchProps> = ({
   onSelectWalletForGraph,
 }) => {
   const [address, setAddress] = useState('');
-  const [network, setNetwork] = useState<'Bitcoin' | 'Ethereum'>('Bitcoin');
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadingStep, setLoadingStep] = useState(0);
+  const [network, setNetwork] = useState<NetworkOption>('bitcoin');
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [investigationResult, setInvestigationResult] = useState<any | null>(null);
   const [showReportPreview, setShowReportPreview] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
+  const [lastRequest, setLastRequest] = useState<{ address: string; network: NetworkOption } | null>(
+    null
+  );
 
-  const demoWallets = [
-    {
-      label: 'bc1q8...x4f9',
-      fullAddress: 'bc1q8x9l4h9g2e75kdf8wqp39nm7x4f9',
-      net: 'Bitcoin' as const,
-      desc: 'LockBit Ransomware Extortion Wallet',
+  const handleSettled = useCallback(
+    (result: any) => {
+      publishInvestigation(result, {
+        address: lastRequest?.address ?? result.address ?? '',
+        network: lastRequest?.network ?? String(result.network ?? '').toLowerCase(),
+        source: 'search',
+      });
+      onSelectWalletForGraph?.({
+        address: lastRequest?.address ?? result.address ?? '',
+        network: lastRequest?.network ?? String(result.network ?? '').toUpperCase(),
+        risk: Number(result.riskScore ?? 0),
+      });
     },
-    {
-      label: '0xA12...7B89',
-      fullAddress: '0xA120B48F705B35C1580A7712E11608d087B89',
-      net: 'Ethereum' as const,
-      desc: 'Tornado.Cash Multi-Hop Layering Ring',
-    },
-  ];
+    [lastRequest, onSelectWalletForGraph]
+  );
 
-  const handleSelectDemo = (demo: typeof demoWallets[0]) => {
-    setAddress(demo.fullAddress);
-    setNetwork(demo.net);
+  const { state, run, reset } = useInvestigationRunner(handleSettled);
+
+  const isLoading = state.phase === 'loading';
+  const investigationResult = state.result;
+
+  // Demo wallets are only ever offered when the backend explicitly runs in DEMO_MODE.
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchBackendMode(controller.signal).then((mode) => {
+      if (!controller.signal.aborted) setDemoMode(mode === 'DEMO');
+    });
+    return () => controller.abort();
+  }, []);
+
+  const startInvestigation = useCallback(
+    (target: string, targetNetwork: NetworkOption) => {
+      const trimmed = target.trim();
+      const invalid = validateAddress(trimmed, targetNetwork);
+      if (invalid) {
+        setValidationError(invalid);
+        return;
+      }
+
+      setValidationError(null);
+      setShowReportPreview(false);
+      reset();
+      setLastRequest({ address: trimmed, network: targetNetwork });
+      beginInvestigation({ address: trimmed, network: targetNetwork, source: 'search' });
+      run(trimmed, targetNetwork);
+    },
+    [reset, run]
+  );
+
+  const handleAnalyze = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    startInvestigation(address, network);
+  };
+
+  const handleRetry = () => {
+    const request = lastRequest ?? { address, network };
+    setAddress(request.address);
+    setNetwork(request.network);
+    startInvestigation(request.address, request.network);
+  };
+
+  const handleDismissError = () => {
     setValidationError(null);
-    setInvestigationResult(null);
+    reset();
+    clearInvestigation();
   };
 
   /** Never render undefined/null as blank space — fall back to N/A. */
@@ -60,93 +167,19 @@ export const LiveInvestigationSearch: React.FC<LiveInvestigationSearchProps> = (
     return String(v);
   };
 
-  const validateAddress = (addr: string, net: 'Bitcoin' | 'Ethereum'): boolean => {
-    const trimmed = addr.trim();
-    if (!trimmed) {
-      setValidationError('Please enter a wallet address to begin investigation.');
-      return false;
-    }
-    if (net === 'Bitcoin') {
-      const isBtc = /^(1|3|bc1)[a-zA-HJ-NP-Z0-9]{25,62}$/.test(trimmed);
-      if (!isBtc && !trimmed.startsWith('bc1q8')) {
-        setValidationError('Invalid Bitcoin address format (Must begin with 1, 3, or bc1).');
-        return false;
-      }
-    } else {
-      const isEth = /^0x[a-fA-F0-9]{40}$/.test(trimmed);
-      if (!isEth && !trimmed.startsWith('0xA12')) {
-        setValidationError('Invalid Ethereum address format (Must be 42 characters starting with 0x).');
-        return false;
-      }
-    }
-    setValidationError(null);
-    return true;
-  };
+  const isLiveResult =
+    investigationResult != null &&
+    String(investigationResult.synthetic) !== 'true' &&
+    String(investigationResult.mode ?? 'LIVE').toUpperCase() !== 'DEMO';
 
-  const handleAnalyze = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!validateAddress(address, network)) return;
-
-    setIsLoading(true);
-    setLoadingStep(1);
-    setInvestigationResult(null);
-
-    const stepTimer1 = setTimeout(() => setLoadingStep(2), 700);
-    const stepTimer2 = setTimeout(() => setLoadingStep(3), 1500);
-    const stepTimer3 = setTimeout(() => setLoadingStep(4), 2200);
-
-    try {
-      const response = await fetch('/api/investigate/wallet', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address: address.trim(), network }),
-      });
-
-      const responseText = await response.text();
-      let responseData: any = null;
-
-      try {
-        responseData = responseText ? JSON.parse(responseText) : null;
-      } catch {
-        responseData = null;
-      }
-
-      if (!response.ok) {
-        const message = responseData?.message || responseData?.error || responseText || `Investigation failed (${response.status})`;
-        throw new Error(message);
-      }
-
-      const result = responseData;
-      if (!result || typeof result !== 'object') {
-        throw new Error('The investigation service returned an invalid response.');
-      }
-
-      setInvestigationResult(result);
-
-      // Feed the investigation graph workspace (Money Trail section) with the live result.
-      publishInvestigation(result, {
-        address: address.trim(),
-        network: network.toLowerCase(),
-        source: 'search',
-      });
-
-      if (onSelectWalletForGraph) {
-        onSelectWalletForGraph({
-          address: address.trim(),
-          network,
-          risk: result.riskScore,
-        });
-      }
-    } catch (error) {
-      console.error('Investigation error:', error);
-      setValidationError(error instanceof Error ? error.message : 'Investigation failed. Please try again.');
-    } finally {
-      setIsLoading(false);
-      clearTimeout(stepTimer1);
-      clearTimeout(stepTimer2);
-      clearTimeout(stepTimer3);
-    }
-  };
+  const activeStageIndex = stageIndexOf(state.stage);
+  const hasBackendProgress = typeof state.progress === 'number';
+  const progressPercent = hasBackendProgress ? (state.progress as number) : 0;
+  const stageLabel = useMemo(() => {
+    if (state.phase === 'completed') return 'COMPLETED';
+    if (state.phase === 'error') return 'FAILED';
+    return STAGE_LABELS[String(state.stage ?? '').trim().toUpperCase()] ?? 'Tracing fund flow';
+  }, [state.phase, state.stage]);
 
   return (
     <section id="investigate" className="relative z-20 py-20 px-6 sm:px-10 max-w-6xl mx-auto">
@@ -161,7 +194,7 @@ export const LiveInvestigationSearch: React.FC<LiveInvestigationSearchProps> = (
         {/* Section Header */}
         <div className="max-w-3xl mb-10">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full glass-border text-[#A58B6F] text-[10px] font-mono uppercase tracking-[0.25em] mb-4">
-            <ShieldAlert className="w-3.5 h-3.5" />
+            <AlertTriangle className="w-3.5 h-3.5" />
             <span>Phase 01 / Live Investigation Search</span>
           </div>
           <h2 className="font-playfair text-3xl sm:text-4xl md:text-5xl font-light text-white tracking-tight mb-3">
@@ -181,13 +214,13 @@ export const LiveInvestigationSearch: React.FC<LiveInvestigationSearchProps> = (
                 id="investigation-network-select"
                 value={network}
                 onChange={(e) => {
-                  setNetwork(e.target.value as 'Bitcoin' | 'Ethereum');
+                  setNetwork(e.target.value as NetworkOption);
                   setValidationError(null);
                 }}
                 className="w-full md:w-44 px-4 py-3.5 rounded-xl bg-white/[0.04] border border-white/10 text-white font-inter text-xs uppercase tracking-wider focus:outline-none focus:border-[#A58B6F] cursor-pointer"
               >
-                <option value="Bitcoin" className="bg-[#101010] text-white">Bitcoin ▾</option>
-                <option value="Ethereum" className="bg-[#101010] text-white">Ethereum ▾</option>
+                <option value="bitcoin" className="bg-[#101010] text-white">Bitcoin ▾</option>
+                <option value="ethereum" className="bg-[#101010] text-white">Ethereum ▾</option>
               </select>
             </div>
 
@@ -236,8 +269,8 @@ export const LiveInvestigationSearch: React.FC<LiveInvestigationSearchProps> = (
             </button>
           </div>
 
-          {/* Validation Error Banner */}
-          {validationError && (
+          {/* Validation / API Error Banner */}
+          {validationError && state.phase !== 'error' && (
             <motion.div
               initial={{ opacity: 0, y: -6 }}
               animate={{ opacity: 1, y: 0 }}
@@ -248,33 +281,21 @@ export const LiveInvestigationSearch: React.FC<LiveInvestigationSearchProps> = (
             </motion.div>
           )}
 
-          {/* Supported Networks & Try Demo Row */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-3 text-xs font-inter">
             <div className="flex items-center gap-2 text-neutral-400 opacity-70">
               <span className="uppercase tracking-wider font-mono text-[10px]">Supported Networks:</span>
               <span className="text-white font-medium">Bitcoin • Ethereum</span>
             </div>
 
-            {/* Try Demo Wallets */}
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-neutral-400 opacity-70 text-[11px]">Try demo:</span>
-              {demoWallets.map((demo) => (
-                <button
-                  key={demo.label}
-                  type="button"
-                  onClick={() => handleSelectDemo(demo)}
-                  className="px-3 py-1 rounded-full bg-white/[0.03] hover:bg-white/10 border border-white/10 hover:border-[#A58B6F]/50 text-neutral-200 font-mono text-[11px] transition-all cursor-pointer flex items-center gap-1.5"
-                  title={demo.desc}
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#A58B6F]" />
-                  <span>{demo.label}</span>
-                </button>
-              ))}
-            </div>
+            {demoMode && (
+              <span className="text-[11px] font-mono text-amber-400/80">
+                BACKEND DEMO MODE ENABLED
+              </span>
+            )}
           </div>
         </form>
 
-        {/* Loading Progress State */}
+        {/* Loading Progress State — driven by the backend record, never by a timer */}
         <AnimatePresence>
           {isLoading && (
             <motion.div
@@ -286,41 +307,116 @@ export const LiveInvestigationSearch: React.FC<LiveInvestigationSearchProps> = (
               <div className="flex items-center justify-between text-xs font-mono">
                 <span className="text-[#A58B6F] flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-[#A58B6F] animate-ping" />
-                  AUTOMATED FORENSIC TRAVERSAL IN PROGRESS
+                  {stageLabel.toUpperCase()}
                 </span>
-                <span className="text-neutral-400">Step {loadingStep} of 4</span>
+                <span className="text-neutral-400 flex items-center gap-1.5">
+                  <Clock className="w-3 h-3" />
+                  {formatElapsed(state.elapsedMs)} elapsed
+                </span>
               </div>
 
-              {/* Progress Bar */}
+              {/* Progress Bar — real backend progress, indeterminate until it arrives */}
               <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-[#A58B6F] to-[#f0f0f0] transition-all duration-500 rounded-full"
-                  style={{ width: `${(loadingStep / 4) * 100}%` }}
-                />
+                {hasBackendProgress ? (
+                  <div
+                    className="h-full bg-gradient-to-r from-[#A58B6F] to-[#f0f0f0] transition-all duration-500 rounded-full"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                ) : (
+                  <div className="h-full w-1/3 bg-gradient-to-r from-transparent via-[#A58B6F] to-transparent animate-pulse rounded-full" />
+                )}
               </div>
 
-              {/* Step Descriptions */}
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-[11px] font-mono text-neutral-400 pt-2">
-                <div className={`p-2.5 rounded-lg border ${loadingStep >= 1 ? 'border-[#A58B6F]/40 text-white bg-white/[0.02]' : 'border-white/5 opacity-40'}`}>
-                  01. Mempool & UTXO Ingestion
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-neutral-500">
+                <span>
+                  {hasBackendProgress
+                    ? `Backend progress ${progressPercent}%`
+                    : 'Awaiting backend progress signal'}
+                </span>
+                {state.investigationId && (
+                  <span className="break-all">ID {state.investigationId}</span>
+                )}
+              </div>
+
+              {/* Data-driven stage list */}
+              <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 text-[11px] font-mono text-neutral-400 pt-2">
+                {STAGE_SEQUENCE.map((label, index) => {
+                  const isCurrent = index === activeStageIndex;
+                  const isDone = index < activeStageIndex;
+                  return (
+                    <div
+                      key={label}
+                      className={`p-2.5 rounded-lg border ${
+                        isCurrent
+                          ? 'border-[#A58B6F]/60 text-white bg-white/[0.04]'
+                          : isDone
+                            ? 'border-emerald-500/20 text-emerald-400/80'
+                            : 'border-white/5 opacity-40'
+                      }`}
+                    >
+                      {String(index + 1).padStart(2, '0')}. {label}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {state.elapsedMs > 180_000 && (
+                <p className="text-[11px] font-mono text-amber-400/80 leading-relaxed">
+                  The backend is still running this trace. Large multi-hop wallets can take several
+                  minutes — the panel closes as soon as the investigation record reaches a terminal
+                  state.
+                </p>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Error State */}
+        <AnimatePresence>
+          {state.phase === 'error' && (
+            <motion.div
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mt-8 pt-8 border-t border-white/10"
+            >
+              <div className="p-5 sm:p-6 rounded-2xl bg-red-950/20 border border-red-500/30 flex flex-col sm:flex-row sm:items-center gap-4 justify-between">
+                <div className="flex items-start gap-3 min-w-0">
+                  <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <div className="text-xs font-mono uppercase tracking-widest text-red-400">
+                      Investigation failed
+                    </div>
+                    <p className="text-xs font-inter text-neutral-300 mt-1.5 break-words">
+                      {state.error || 'The investigation could not be completed.'}
+                    </p>
+                  </div>
                 </div>
-                <div className={`p-2.5 rounded-lg border ${loadingStep >= 2 ? 'border-[#A58B6F]/40 text-white bg-white/[0.02]' : 'border-white/5 opacity-40'}`}>
-                  02. Multi-Hop Graph Traversal
-                </div>
-                <div className={`p-2.5 rounded-lg border ${loadingStep >= 3 ? 'border-[#A58B6F]/40 text-white bg-white/[0.02]' : 'border-white/5 opacity-40'}`}>
-                  03. Heuristic Clustering & AI
-                </div>
-                <div className={`p-2.5 rounded-lg border ${loadingStep >= 4 ? 'border-[#A58B6F]/40 text-white bg-white/[0.02]' : 'border-white/5 opacity-40'}`}>
-                  04. Exchange Destination Match
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleRetry}
+                    className="px-4 py-2 rounded-full bg-[#A58B6F] text-black text-[10px] font-semibold uppercase tracking-widest hover:bg-[#C4A482] transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Retry</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDismissError}
+                    className="px-4 py-2 rounded-full border border-white/15 text-neutral-300 text-[10px] font-semibold uppercase tracking-widest hover:border-white/30 transition-all cursor-pointer"
+                  >
+                    Dismiss
+                  </button>
                 </div>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Live Investigation Dossier Result */}
+        {/* Live Investigation Dossier Result — rendered from the real backend response */}
         <AnimatePresence>
-          {investigationResult && !isLoading && (
+          {state.phase === 'completed' && investigationResult && (
             <motion.div
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
@@ -331,8 +427,12 @@ export const LiveInvestigationSearch: React.FC<LiveInvestigationSearchProps> = (
                 {/* Result Top Bar */}
                 <div className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-white/10">
                   <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="px-2.5 py-0.5 rounded bg-red-500/20 border border-red-500/40 text-red-400 text-[10px] font-mono font-bold uppercase tracking-wider">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <span className="px-2.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 text-[10px] font-mono font-bold uppercase tracking-wider inline-flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" />
+                        COMPLETED
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded bg-[#A58B6F]/10 border border-[#A58B6F]/30 text-[#C4A482] text-[10px] font-mono uppercase tracking-wider">
                         {val(investigationResult.riskLevel)}
                       </span>
                       <span className="text-[11px] font-mono text-neutral-400">
@@ -358,6 +458,22 @@ export const LiveInvestigationSearch: React.FC<LiveInvestigationSearchProps> = (
                   </div>
                 </div>
 
+                {/* Live provenance — shown exactly as returned */}
+                <div className="flex flex-wrap items-center gap-2 pt-4 text-[10px] font-mono uppercase tracking-wider">
+                  <span className="px-2 py-0.5 rounded border border-white/10 text-neutral-300">
+                    MODE: {val(investigationResult.mode)}
+                  </span>
+                  <span className="px-2 py-0.5 rounded border border-white/10 text-neutral-300">
+                    SYNTHETIC: {String(investigationResult.synthetic === true)}
+                  </span>
+                  <span className="px-2 py-0.5 rounded border border-white/10 text-neutral-300">
+                    NETWORK: {val(investigationResult.network)}
+                  </span>
+                  <span className="px-2 py-0.5 rounded border border-white/10 text-neutral-300">
+                    COMPLETED: {val(investigationResult.timestamp)}
+                  </span>
+                </div>
+
                 {/* Intelligence Metrics Grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 py-6">
                   <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/5">
@@ -375,7 +491,7 @@ export const LiveInvestigationSearch: React.FC<LiveInvestigationSearchProps> = (
                   <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/5">
                     <div className="text-[10px] font-mono uppercase tracking-wider text-neutral-400">WALLET CLUSTER</div>
                     <div className="text-base font-semibold text-amber-300 mt-1 truncate">{val(investigationResult.clusteringTag)}</div>
-                    <div className="text-[10px] text-amber-400 mt-0.5">Automated Peeling Chain Detected</div>
+                    <div className="text-[10px] text-amber-400 mt-0.5">{val(investigationResult.peelingChains)}</div>
                   </div>
 
                   <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/5">
@@ -388,7 +504,10 @@ export const LiveInvestigationSearch: React.FC<LiveInvestigationSearchProps> = (
                 {/* Action CTA Buttons */}
                 <div className="flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-white/10">
                   <div className="text-xs text-neutral-400 font-inter">
-                    <span className="text-emerald-400 font-semibold">● Ready for Intervention:</span> Subpoena-ready forensic data packet assembled for LEA submission.
+                    <span className="text-emerald-400 font-semibold">
+                      {isLiveResult ? '● LIVE investigation data received' : '● Response received'}
+                    </span>{' '}
+                    Trace completed {val(investigationResult.timestamp)}.
                   </div>
                   <div className="flex items-center gap-3">
                     {/* Generate Report */}
@@ -421,7 +540,7 @@ export const LiveInvestigationSearch: React.FC<LiveInvestigationSearchProps> = (
               </div>
             </motion.div>
           )}
-                </AnimatePresence>
+        </AnimatePresence>
       </div>
 
       {/* Report Preview */}

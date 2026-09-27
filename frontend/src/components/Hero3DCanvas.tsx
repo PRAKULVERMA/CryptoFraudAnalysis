@@ -209,30 +209,21 @@ export const Hero3DCanvas: React.FC<Hero3DCanvasProps> = ({ scrollProgress, mous
     wireframeOrbit.rotation.z = 0.2;
     planetGroup.add(wireframeOrbit);
 
-    // 5. Starfield & Ambient Embers / Floating Stardust
-    const particleCount = 700;
+    // 5. Minimal starfield
+    const particleCount = 120;
     const particleGeo = new THREE.BufferGeometry();
     const positions = new Float32Array(particleCount * 3);
     const colors = new Float32Array(particleCount * 3);
 
     for (let i = 0; i < particleCount; i++) {
       const idx = i * 3;
-      // Spread across 3D space
-      positions[idx] = (Math.random() - 0.5) * 22;
-      positions[idx + 1] = (Math.random() - 0.5) * 14 + 1;
-      positions[idx + 2] = (Math.random() - 0.5) * 12 - 2;
+      positions[idx] = (Math.random() - 0.5) * 26;
+      positions[idx + 1] = (Math.random() - 0.5) * 18 + 1;
+      positions[idx + 2] = (Math.random() - 0.5) * 14 - 2;
 
-      // Color variation: bronze (#A58B6F), champagne, and starlight white
-      const rand = Math.random();
-      if (rand > 0.45) {
-        colors[idx] = 0.65; // bronze R
-        colors[idx + 1] = 0.55; // bronze G
-        colors[idx + 2] = 0.44; // bronze B
-      } else {
-        colors[idx] = 0.9;
-        colors[idx + 1] = 0.92;
-        colors[idx + 2] = 1.0;
-      }
+      colors[idx] = 0.9;
+      colors[idx + 1] = 0.9;
+      colors[idx + 2] = 1.0;
     }
     particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     particleGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));

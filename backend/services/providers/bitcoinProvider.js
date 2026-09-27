@@ -1,60 +1,29 @@
-import config from '../../config/index.js';
+﻿import config from '../../config/index.js';
 import { validateBitcoinAddress } from '../blockchain/validator.js';
-import { createProviderError, isRateLimited, normalizeProviderFailure } from './providerErrors.js';
+import { createProviderError, PROVIDER_ERROR_CODES } from './providerErrors.js';
+import { createProviderMetrics, requestProviderJson } from './providerHttp.js';
+
+const PROVIDER_NAME = 'blockstream';
+const NETWORK_NAME = 'bitcoin';
+const BLOCKSTREAM_PAGE_SIZE = 25;
+const MAX_PAGES_PER_WALLET = 4;
+
+function baseUrl() {
+  return String(config.BITCOIN_API_URL || '').replace(/\/$/, '');
+}
 
 function assertAddress(address) {
   if (!validateBitcoinAddress(address)) {
-    throw createProviderError('INVALID_ADDRESS', 'The provided Bitcoin address is invalid.', 422);
+    throw createProviderError(
+      PROVIDER_ERROR_CODES.INVALID_ADDRESS,
+      'The provided Bitcoin address is invalid.',
+      422,
+      null,
+      { provider: PROVIDER_NAME, network: NETWORK_NAME, retryable: false },
+    );
   }
 }
 
-async function requestJson(url) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), config.BLOCKCHAIN_PROVIDER_TIMEOUT);
-
-  try {
-    const response = await fetch(url, { signal: controller.signal });
-
-    if (!response.ok) {
-      const contentType = response.headers.get('content-type') || 'unknown';
-      const bodyText = await response.text().catch(() => '<unreadable>');
-      console.warn(`[BitcoinProvider] HTTP ${response.status} — URL: ${url.substring(0, 120)}, Content-Type: ${contentType}, body_len: ${bodyText.length}, body_preview: ${bodyText.substring(0, 200)}`);
-      throw createProviderError(
-        'PROVIDER_HTTP_ERROR',
-        `Bitcoin provider returned HTTP ${response.status}.`,
-        response.status === 429 ? 429 : 502,
-      );
-    }
-
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('json')) {
-      const bodyText = await response.text().catch(() => '<unreadable>');
-      console.warn(`[BitcoinProvider] Non-JSON response — URL: ${url.substring(0, 120)}, Content-Type: ${contentType}, body_len: ${bodyText.length}, body_preview: ${bodyText.substring(0, 200)}`);
-      throw createProviderError('PROVIDER_HTTP_ERROR', 'Bitcoin provider returned non-JSON response.', 502);
-    }
-
-    let payload;
-    try {
-      payload = await response.json();
-    } catch (error) {
-      console.warn(`[BitcoinProvider] JSON parse error — URL: ${url.substring(0, 120)}, Content-Type: ${contentType}`);
-      throw createProviderError('BLOCKCHAIN_API_ERROR', 'Bitcoin provider returned invalid JSON.', 502, error);
-    }
-
-    if (isRateLimited(response.status, payload)) {
-      throw createProviderError('RATE_LIMITED', 'The Bitcoin provider rate limit was reached.', 429);
-    }
-
-    return payload;
-  } catch (error) {
-    if (error?.name === 'AbortError') {
-      throw createProviderError('PROVIDER_TIMEOUT', 'The Bitcoin provider request timed out.', 504, error);
-    }
-    throw normalizeProviderFailure(error);
-  } finally {
-    clearTimeout(timeout);
-  }
-}
 
 function normalizeTransaction(transaction, walletAddress) {
   const inputs = transaction.vin || [];
@@ -116,55 +85,81 @@ function normalizeTransaction(transaction, walletAddress) {
 }
 
 class BitcoinProvider {
-  async getWalletTransactions(address, network = 'bitcoin') {
+  async getWalletTransactions(address, network = 'bitcoin', context = {}) {
     assertAddress(address);
 
+    const metrics = context.metrics || createProviderMetrics();
+    const perWalletLimit = Math.max(1, Number(config.MAX_TRANSACTIONS_PER_WALLET) || 50);
     const allTransactions = [];
-    const baseUrl = `${config.BITCOIN_API_URL.replace(/\/$/, '')}/address/${encodeURIComponent(address)}/txs`;
+    const txsUrl = `${baseUrl()}/address/${encodeURIComponent(address)}/txs`;
     let beforeTxId = null;
     let hasMore = true;
+    let pagesProcessed = 0;
+    let truncated = false;
 
-    while (hasMore && allTransactions.length < config.MAX_TOTAL_TRANSACTIONS) {
-      const url = beforeTxId ? `${baseUrl}?before=${encodeURIComponent(beforeTxId)}` : baseUrl;
-      const payload = await requestJson(url);
+    while (hasMore && allTransactions.length < perWalletLimit && pagesProcessed < MAX_PAGES_PER_WALLET) {
+      pagesProcessed += 1;
+      const url = beforeTxId ? `${txsUrl}?before=${encodeURIComponent(beforeTxId)}` : txsUrl;
+      const payload = await requestProviderJson(url, { provider: PROVIDER_NAME, network: NETWORK_NAME, metrics });
 
       if (!Array.isArray(payload) || payload.length === 0) {
         hasMore = false;
         break;
       }
 
-      const normalized = payload.map((tx) => normalizeTransaction(tx, address));
-      allTransactions.push(...normalized);
+      allTransactions.push(...payload.map((tx) => normalizeTransaction(tx, address)));
 
-      if (payload.length < 50) {
+      if (payload.length < BLOCKSTREAM_PAGE_SIZE) {
         hasMore = false;
       } else {
         beforeTxId = payload[payload.length - 1].txid;
       }
     }
 
+    if (hasMore || allTransactions.length >= perWalletLimit) truncated = true;
+
+    allTransactions.sort((a, b) => {
+      const d = Number(b.blockNumber || 0) - Number(a.blockNumber || 0);
+      if (d !== 0) return d;
+      const ta = String(a.transactionId || '');
+      const tb = String(b.transactionId || '');
+      return ta < tb ? -1 : ta > tb ? 1 : 0;
+    });
+
+    const transactions = allTransactions.slice(0, perWalletLimit);
+
     return {
       address,
       network: 'bitcoin',
-      transactions: allTransactions.slice(0, config.MAX_TOTAL_TRANSACTIONS),
+      transactions,
+      provider_tx_count: allTransactions.length,
+      pagination: { pages: pagesProcessed, before_txid: beforeTxId || null, truncated },
+      diagnostics: { ...metrics, provider: PROVIDER_NAME, network: NETWORK_NAME },
       synthetic: false,
       mode: 'LIVE',
     };
   }
 
-  async getTransaction(txHash, network = 'bitcoin') {
+  async getTransaction(txHash, network = 'bitcoin', context = {}) {
     if (!txHash || typeof txHash !== 'string') {
-      throw createProviderError('INVALID_ADDRESS', 'The transaction hash is invalid.', 422);
+      throw createProviderError(
+        PROVIDER_ERROR_CODES.INVALID_ADDRESS,
+        'The transaction hash is invalid.',
+        422,
+        null,
+        { provider: PROVIDER_NAME, network: NETWORK_NAME, retryable: false },
+      );
     }
 
-    const url = `${config.BITCOIN_API_URL.replace(/\/$/, '')}/tx/${encodeURIComponent(txHash)}`;
-    return normalizeTransaction(await requestJson(url), null);
+    const url = `${baseUrl()}/tx/${encodeURIComponent(txHash)}`;
+    const payload = await requestProviderJson(url, { provider: PROVIDER_NAME, network: NETWORK_NAME, metrics: context.metrics });
+    return normalizeTransaction(payload, null);
   }
 
-  async getWalletInfo(address, network = 'bitcoin') {
+  async getWalletInfo(address, network = 'bitcoin', context = {}) {
     assertAddress(address);
-    const url = `${config.BITCOIN_API_URL.replace(/\/$/, '')}/address/${encodeURIComponent(address)}`;
-    const payload = await requestJson(url);
+    const url = `${baseUrl()}/address/${encodeURIComponent(address)}`;
+    const payload = await requestProviderJson(url, { provider: PROVIDER_NAME, network: NETWORK_NAME, metrics: context.metrics });
     const funded = Number(payload?.chain_stats?.funded_txo_sum || 0);
     const spent = Number(payload?.chain_stats?.spent_txo_sum || 0);
 

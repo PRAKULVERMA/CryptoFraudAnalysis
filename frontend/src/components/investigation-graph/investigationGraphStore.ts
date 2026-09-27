@@ -1,4 +1,10 @@
 import { useSyncExternalStore } from 'react';
+import {
+  isTerminalStatus,
+  normalizeStatus,
+  submitInvestigation,
+  type InvestigationNetwork,
+} from '../../services/investigationApi';
 
 /**
  * Minimal shape contract for the /api/investigate/wallet response.
@@ -69,21 +75,40 @@ export function publishInvestigation(
   });
 }
 
+/** Marks the graph workspace as tracing so it never shows a stale completed result. */
+export function beginInvestigation(meta: { address: string; network: string; source: InvestigationSource }) {
+  setState({
+    result: null,
+    address: meta.address,
+    network: meta.network,
+    error: null,
+    isRunning: true,
+    source: meta.source,
+  });
+}
+
+export function failInvestigation(message: string) {
+  setState({ result: null, error: message, isRunning: false });
+}
+
 export function clearInvestigation() {
   setState(initialState);
 }
 
 /**
  * Shared API client for the investigation endpoint.
- * Mirrors the contract used by LiveInvestigationSearch (POST /api/investigate/wallet).
+ * Delegates to the single network layer so status handling and abort support
+ * stay identical to the LiveInvestigationSearch flow.
  */
 export async function runInvestigation(
   address: string,
   network: string,
-  source: InvestigationSource
+  source: InvestigationSource,
+  signal?: AbortSignal
 ): Promise<InvestigationResult> {
   const trimmed = address.trim();
   setState({
+    result: null,
     isRunning: true,
     error: null,
     address: trimmed,
@@ -92,39 +117,27 @@ export async function runInvestigation(
   });
 
   try {
-    const response = await fetch('/api/investigate/wallet', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ address: trimmed, network }),
+    const result = await submitInvestigation({
+      address: trimmed,
+      network: network.trim().toLowerCase() as InvestigationNetwork,
+      signal,
     });
 
-    const responseText = await response.text();
-    let responseData: any = null;
-    try {
-      responseData = responseText ? JSON.parse(responseText) : null;
-    } catch {
-      responseData = null;
+    const status = normalizeStatus(result.status);
+    if (status !== 'COMPLETED' && isTerminalStatus(status)) {
+      throw new Error('The investigation could not be completed.');
     }
 
-    if (!response.ok) {
-      const message =
-        responseData?.message ||
-        responseData?.error ||
-        responseText ||
-        `Investigation failed (${response.status})`;
-      throw new Error(typeof message === 'string' ? message : 'Investigation failed.');
-    }
-
-    if (!responseData || typeof responseData !== 'object') {
-      throw new Error('The investigation service returned an invalid response.');
-    }
-
-    publishInvestigation(responseData, { address: trimmed, network, source });
-    return responseData;
+    publishInvestigation(result, { address: trimmed, network, source });
+    return result;
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : 'Investigation failed. Please try again.';
-    setState({ isRunning: false, error: message });
+    const aborted =
+      error instanceof DOMException && error.name === 'AbortError';
+    if (!aborted) {
+      const message =
+        error instanceof Error ? error.message : 'Investigation failed. Please try again.';
+      setState({ result: null, isRunning: false, error: message });
+    }
     throw error;
   }
 }

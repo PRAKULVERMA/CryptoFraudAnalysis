@@ -1,19 +1,70 @@
-import config from '../../config/index.js';
+﻿import config from '../../config/index.js';
 import { validateEthereumAddress } from '../blockchain/validator.js';
-import { createProviderError, isRateLimited, normalizeProviderFailure } from './providerErrors.js';
+import { createProviderError, PROVIDER_ERROR_CODES } from './providerErrors.js';
+import { createProviderMetrics, requestProviderJson } from './providerHttp.js';
 
 const WEI_PER_ETH = 1000000000000000000n;
+const PROVIDER_NAME = 'etherscan';
+const NETWORK_NAME = 'ethereum';
+const ETHEREUM_MAINNET_CHAIN_ID = '1';
+const MAX_PAGES_PER_WALLET = 10;
 
 function assertApiKey() {
-  if (!config.ETHERSCAN_API_KEY || config.ETHERSCAN_API_KEY === 'your_key_here') {
-    throw createProviderError('PROVIDER_UNAVAILABLE', 'Ethereum provider credentials are not configured.', 503);
+  if (!config.ETHERSCAN_API_KEY || config.ETHERSCAN_API_KEY === 'your_key_here' || config.ETHERSCAN_API_KEY === 'your_etherscan_api_key') {
+    throw createProviderError(
+      PROVIDER_ERROR_CODES.PROVIDER_AUTH_ERROR,
+      'Ethereum provider credentials are not configured.',
+      503,
+      null,
+      { provider: PROVIDER_NAME, network: NETWORK_NAME, retryable: false },
+    );
   }
 }
 
 function assertAddress(address) {
   if (!validateEthereumAddress(address)) {
-    throw createProviderError('INVALID_ADDRESS', 'The provided Ethereum address is invalid.', 422);
+    throw createProviderError(
+      PROVIDER_ERROR_CODES.INVALID_ADDRESS,
+      'The provided Ethereum address is invalid.',
+      422,
+      null,
+      { provider: PROVIDER_NAME, network: NETWORK_NAME, retryable: false },
+    );
   }
+}
+
+function buildEtherscanUrl(params) {
+  const url = new URL(config.ETHERSCAN_API_URL);
+  url.searchParams.set('chainid', ETHEREUM_MAINNET_CHAIN_ID);
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, String(value));
+  }
+  url.searchParams.set('apikey', config.ETHERSCAN_API_KEY);
+  return url;
+}
+
+function assertEtherscanPayload(payload) {
+  const message = String(payload?.message || '').toLowerCase();
+  const result = String(payload?.result || '').toLowerCase();
+
+  if (message.includes('no transactions') || result.includes('no transactions found')) {
+    return { empty: true };
+  }
+
+  if (payload?.status !== '1') {
+    return {
+      empty: false,
+      error: createProviderError(
+        PROVIDER_ERROR_CODES.BLOCKCHAIN_API_ERROR,
+        `Ethereum provider returned an unusable response: ${String(payload?.message || payload?.result || 'unknown').slice(0, 160)}`,
+        502,
+        null,
+        { provider: PROVIDER_NAME, network: NETWORK_NAME, retryable: false },
+      ),
+    };
+  }
+
+  return { empty: false };
 }
 
 function weiToNumber(value) {
@@ -27,53 +78,6 @@ function weiToNumber(value) {
   }
 }
 
-async function requestJson(url) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), config.BLOCKCHAIN_PROVIDER_TIMEOUT);
-
-  try {
-    const response = await fetch(url, { signal: controller.signal });
-
-    if (!response.ok) {
-      const contentType = response.headers.get('content-type') || 'unknown';
-      const bodyText = await response.text().catch(() => '<unreadable>');
-      console.warn(`[EthereumProvider] HTTP ${response.status} — URL: ${url.toString().substring(0, 120)}, Content-Type: ${contentType}, body_len: ${bodyText.length}, body_preview: ${bodyText.substring(0, 200)}`);
-      throw createProviderError(
-        'PROVIDER_HTTP_ERROR',
-        `Ethereum provider returned HTTP ${response.status}.`,
-        response.status === 429 ? 429 : 502,
-      );
-    }
-
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('json')) {
-      const bodyText = await response.text().catch(() => '<unreadable>');
-      console.warn(`[EthereumProvider] Non-JSON response — URL: ${url.toString().substring(0, 120)}, Content-Type: ${contentType}, body_len: ${bodyText.length}, body_preview: ${bodyText.substring(0, 200)}`);
-      throw createProviderError('PROVIDER_HTTP_ERROR', 'Ethereum provider returned non-JSON response.', 502);
-    }
-
-    let payload;
-    try {
-      payload = await response.json();
-    } catch (error) {
-      console.warn(`[EthereumProvider] JSON parse error — URL: ${url.toString().substring(0, 120)}, Content-Type: ${contentType}`);
-      throw createProviderError('BLOCKCHAIN_API_ERROR', 'Ethereum provider returned invalid JSON.', 502, error);
-    }
-
-    if (isRateLimited(response.status, payload)) {
-      throw createProviderError('RATE_LIMITED', 'The Ethereum provider rate limit was reached.', 429);
-    }
-
-    return payload;
-  } catch (error) {
-    if (error?.name === 'AbortError') {
-      throw createProviderError('PROVIDER_TIMEOUT', 'The Ethereum provider request timed out.', 504, error);
-    }
-    throw normalizeProviderFailure(error);
-  } finally {
-    clearTimeout(timeout);
-  }
-}
 
 function normalizeTransaction(transaction, walletAddress) {
   const hash = transaction.hash || transaction.transactionHash || transaction.blockHash || '';
@@ -129,96 +133,134 @@ class EthereumProvider {
     return config.ETHERSCAN_API_URL;
   }
 
-  async getWalletTransactions(address, network = 'ethereum') {
+  async getWalletTransactions(address, network = 'ethereum', context = {}) {
     assertAddress(address);
     assertApiKey();
 
+    const metrics = context.metrics || createProviderMetrics();
+    const perWalletLimit = Math.max(1, Number(config.MAX_TRANSACTIONS_PER_WALLET) || 50);
+    const pageSize = Math.min(perWalletLimit, 100);
     const allTransactions = [];
-    const pageSize = Math.min(config.MAX_TRANSACTIONS_PER_WALLET || 100, 100);
     let page = 1;
+    let pagesProcessed = 0;
+    let truncated = false;
 
-    while (allTransactions.length < config.MAX_TOTAL_TRANSACTIONS) {
-      const url = new URL(this.apiBaseUrl);
-      url.searchParams.set('chainid', '1');
-      url.searchParams.set('module', 'account');
-      url.searchParams.set('action', 'txlist');
-      url.searchParams.set('address', address);
-      url.searchParams.set('startblock', '0');
-      url.searchParams.set('endblock', '99999999');
-      url.searchParams.set('page', String(page));
-      url.searchParams.set('offset', String(pageSize));
-      url.searchParams.set('sort', 'desc');
-      url.searchParams.set('apikey', config.ETHERSCAN_API_KEY);
+    while (allTransactions.length < perWalletLimit && pagesProcessed < MAX_PAGES_PER_WALLET) {
+      pagesProcessed += 1;
 
-      const payload = await requestJson(url);
-      const message = String(payload?.message || '').toLowerCase();
-      const result = payload?.result;
+      const url = buildEtherscanUrl({
+        module: 'account',
+        action: 'txlist',
+        address,
+        startblock: 0,
+        endblock: 99999999,
+        page,
+        offset: pageSize,
+        sort: 'desc',
+      });
 
-      if (payload?.status === '0' && message.includes('no transactions')) {
-        break;
-      }
+      const payload = await requestProviderJson(url, { provider: PROVIDER_NAME, network: NETWORK_NAME, metrics });
+      const verdict = assertEtherscanPayload(payload);
 
-      if (payload?.status !== '1' || !Array.isArray(result)) {
-        throw createProviderError('BLOCKCHAIN_API_ERROR', 'Ethereum provider returned an invalid transaction response.', 502);
-      }
+      if (verdict.error) throw verdict.error;
+      if (verdict.empty) break;
 
-      if (result.length === 0) {
-        break;
-      }
+      const result = payload.result;
+      if (!Array.isArray(result) || result.length === 0) break;
 
       allTransactions.push(...result.map((tx) => normalizeTransaction(tx, address)));
 
-      if (result.length < pageSize) {
-        break;
-      }
+      if (result.length < pageSize) break;
 
-      page++;
+      page += 1;
     }
+
+    if (allTransactions.length >= perWalletLimit) truncated = true;
+
+    allTransactions.sort((a, b) => {
+      const d = Number(b.blockNumber || 0) - Number(a.blockNumber || 0);
+      if (d !== 0) return d;
+      const ta = String(a.transactionId || '');
+      const tb = String(b.transactionId || '');
+      return ta < tb ? -1 : ta > tb ? 1 : 0;
+    });
+
+    const transactions = allTransactions.slice(0, perWalletLimit);
 
     return {
       address,
       network: 'ethereum',
-      transactions: allTransactions.slice(0, config.MAX_TOTAL_TRANSACTIONS),
+      transactions,
+      provider_tx_count: allTransactions.length,
+      pagination: { pages: pagesProcessed, truncated },
+      diagnostics: { ...metrics, provider: PROVIDER_NAME, network: NETWORK_NAME },
       synthetic: false,
       mode: 'LIVE',
     };
   }
 
-  async getTransaction(txHash, network = 'ethereum') {
+  async getTransaction(txHash, network = 'ethereum', context = {}) {
     assertApiKey();
     if (!txHash || typeof txHash !== 'string') {
-      throw createProviderError('INVALID_ADDRESS', 'The transaction hash is invalid.', 422);
+      throw createProviderError(
+        PROVIDER_ERROR_CODES.INVALID_ADDRESS,
+        'The transaction hash is invalid.',
+        422,
+        null,
+        { provider: PROVIDER_NAME, network: NETWORK_NAME, retryable: false },
+      );
     }
 
-    const url = new URL(this.apiBaseUrl);
-    url.searchParams.set('chainid', '1');
-    url.searchParams.set('module', 'proxy');
-    url.searchParams.set('action', 'eth_getTransactionByHash');
-    url.searchParams.set('txhash', txHash);
-    url.searchParams.set('apikey', config.ETHERSCAN_API_KEY);
+    const url = buildEtherscanUrl({
+      module: 'proxy',
+      action: 'eth_getTransactionByHash',
+      txhash: txHash,
+    });
 
-    const payload = await requestJson(url);
+    const payload = await requestProviderJson(url, {
+      provider: PROVIDER_NAME,
+      network: NETWORK_NAME,
+      metrics: context.metrics,
+    });
+
     if (!payload?.result) {
-      throw createProviderError('BLOCKCHAIN_API_ERROR', 'Ethereum transaction was not found.', 404);
+      throw createProviderError(
+        PROVIDER_ERROR_CODES.BLOCKCHAIN_API_ERROR,
+        'Ethereum transaction was not found.',
+        404,
+        null,
+        { provider: PROVIDER_NAME, network: NETWORK_NAME, retryable: false },
+      );
     }
 
     return normalizeTransaction(payload.result, null);
   }
 
-  async getWalletInfo(address, network = 'ethereum') {
+  async getWalletInfo(address, network = 'ethereum', context = {}) {
     assertAddress(address);
     assertApiKey();
-    const url = new URL(this.apiBaseUrl);
-    url.searchParams.set('chainid', '1');
-    url.searchParams.set('module', 'account');
-    url.searchParams.set('action', 'balance');
-    url.searchParams.set('address', address);
-    url.searchParams.set('tag', 'latest');
-    url.searchParams.set('apikey', config.ETHERSCAN_API_KEY);
 
-    const payload = await requestJson(url);
+    const url = buildEtherscanUrl({
+      module: 'account',
+      action: 'balance',
+      address,
+      tag: 'latest',
+    });
+
+    const payload = await requestProviderJson(url, {
+      provider: PROVIDER_NAME,
+      network: NETWORK_NAME,
+      metrics: context.metrics,
+    });
+
     if (payload?.status !== '1') {
-      throw createProviderError('BLOCKCHAIN_API_ERROR', 'Ethereum provider returned an invalid balance response.', 502);
+      throw createProviderError(
+        PROVIDER_ERROR_CODES.BLOCKCHAIN_API_ERROR,
+        'Ethereum provider returned an invalid balance response.',
+        502,
+        null,
+        { provider: PROVIDER_NAME, network: NETWORK_NAME, retryable: false },
+      );
     }
 
     return {

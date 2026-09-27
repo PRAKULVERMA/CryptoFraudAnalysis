@@ -378,6 +378,7 @@ export const TransactionNetworkGraph: React.FC = () => {
   const showNoTx =
     !isRunning && !error && result && status.code === 'NO_TRANSACTIONS';
   const showProviderError = !isRunning && !error && result && status.code === 'PROVIDER_ERROR';
+  const showNoResult = !isRunning && !error && !result;
   const showEmptyGraph =
     !isRunning && !error && result && !showNoTx && !showProviderError && graphData.nodes.length === 0;
   const emptyGraphReason =
@@ -551,6 +552,18 @@ export const TransactionNetworkGraph: React.FC = () => {
                 <p className="text-xs font-mono text-neutral-400 max-w-md break-words">{error}</p>
               </div>
             )}
+            {!isRunning && !error && showNoResult && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
+                <GitFork className="w-6 h-6 text-neutral-600" />
+                <span className="text-[10px] font-mono uppercase tracking-[0.25em] text-neutral-400">
+                  No investigation loaded
+                </span>
+                <p className="text-xs font-mono text-neutral-500 max-w-md">
+                  Run an investigation above. The traced fund flow is rendered here from the
+                  backend nodes, edges, hops and transaction values.
+                </p>
+              </div>
+            )}
             {!isRunning && !error && showNoTx && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
                 <ShieldAlert className="w-6 h-6 text-neutral-500" />
@@ -577,20 +590,22 @@ export const TransactionNetworkGraph: React.FC = () => {
                 {emptyGraphReason === 'topology' && (
                   <>
                     <span className="text-[10px] font-mono uppercase tracking-[0.25em] text-neutral-500">
-                      No Graph Topology Returned
+                      No Graph Data Returned
                     </span>
                     <p className="text-xs font-mono text-neutral-600 max-w-md">
-                      The investigation completed but no topology graph was returned for this wallet.
+                      No graph data returned. The investigation completed without topology nodes
+                      or edges for this wallet.
                     </p>
                   </>
                 )}
                 {emptyGraphReason === 'no-result' && (
                   <>
                     <span className="text-[10px] font-mono uppercase tracking-[0.25em] text-neutral-500">
-                      Nothing to Graph
+                      No Graph Data Returned
                     </span>
-                    <p className="text-xs font-mono text-neutral-600">
-                      The investigation returned no graphable data for this wallet.
+                    <p className="text-xs font-mono text-neutral-600 max-w-md">
+                      No graph data returned. The investigation returned no graphable nodes for
+                      this wallet.
                     </p>
                   </>
                 )}

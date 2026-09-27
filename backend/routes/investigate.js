@@ -35,10 +35,20 @@ router.post('/wallet', authenticate, async (req, res, next) => {
     const result = finalRecord?.results || finalRecord;
 
     if (!result || finalRecord?.status !== 'completed') {
-      return res.status(500).json({
+      const lastError = finalRecord?.last_error || {};
+      return res.status(502).json({
         error: true,
-        code: 'INVESTIGATION_FAILED',
-        message: finalRecord?.last_error?.message || 'Investigation processing failed.',
+        code: lastError.code || 'INVESTIGATION_FAILED',
+        message: lastError.message || 'Investigation processing failed.',
+        mode: 'LIVE',
+        synthetic: false,
+        provider: lastError.provider ?? null,
+        network: lastError.network ?? network,
+        provider_status: lastError.status ?? null,
+        retryable: lastError.retryable ?? false,
+        attempt_count: lastError.attempts ?? null,
+        investigation_id: existingRecord.investigation_id,
+        status: finalRecord?.status || 'failed',
       });
     }
 
